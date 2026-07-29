@@ -1,0 +1,46 @@
+# ==========================================
+# 1. SECURITY & SECRETS (Cybersecurity Must)
+# ==========================================
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# ==========================================
+# 2. DEPENDENCIES & LIBRARIES
+# ==========================================
+node_modules/
+/.pnp
+.pnp.js
+
+# ==========================================
+# 3. BUILD & DISTRIBUTION OUTPUTS
+# ==========================================
+build/
+dist/
+
+# ==========================================
+# 4. SERVER TEMP UPLOADS (Multer Excel Files)
+# ==========================================
+uploads/
+data_upload/
+temp/
+
+# ==========================================
+# 5. LOGS & DEBUGGING
+# ==========================================
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+logs/
+*.log
+
+# ==========================================
+# 6. OPERATING SYSTEM & IDE GARBAGE
+# ==========================================
+.DS_Store
+Thumbs.db
+ehthumbs.db
+.vscode/
+.idea/

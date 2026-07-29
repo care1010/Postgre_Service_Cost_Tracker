@@ -1,0 +1,1485 @@
+import { HiOutlineFilter, HiOutlineViewGrid, HiOutlineSearch, HiOutlineRefresh, HiChevronDown } from "react-icons/hi";
+import React, { useEffect, useRef, useState } from 'react';
+import axios from 'axios';
+import { DataGrid } from '@mui/x-data-grid';
+import * as XLSX from "xlsx";
+import { saveAs } from 'file-saver';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LabelList, LineChart, Line, ComposedChart } from 'recharts';
+
+import '../components/FilterBar.css'; // 🔥 YEH IMPORT ADD KARNA MAT BHOOLNA
+import { MdFilterAlt } from 'react-icons/md';
+import { HiCheck } from 'react-icons/hi';
+
+// ==========================================
+// CUSTOM MULTI-SELECT FOR DASHBOARD
+// ==========================================
+const DashMultiSelect = ({ label, options = [], selected = [], onChange }) => {
+    const [isOpen, setIsOpen] = useState(false);
+    const [search, setSearch] = useState('');
+    const containerRef = useRef(null);
+    const searchRef = useRef(null);
+
+    useEffect(() => {
+        const handleOutside = (e) => {
+            if (containerRef.current && !containerRef.current.contains(e.target)) {
+                setIsOpen(false); setSearch('');
+            }
+        };
+        document.addEventListener('mousedown', handleOutside);
+        return () => document.removeEventListener('mousedown', handleOutside);
+    }, []);
+
+    useEffect(() => { if (isOpen && searchRef.current) searchRef.current.focus(); }, [isOpen]);
+
+    const toggleOption = (val) => {
+        if (selected.includes(val)) onChange(selected.filter((v) => v !== val));
+        else onChange([...selected, val]);
+    };
+
+    const filteredOptions = options.filter((opt) => opt.toString().toLowerCase().includes(search.toLowerCase()));
+    const hasSelection = selected.length > 0;
+    const visiblePills = selected.slice(0, 2);
+    const overflowCount = selected.length - 2;
+
+    return (
+        <div ref={containerRef} className={`ms-container ${hasSelection ? 'ms-container--active' : ''}`}>
+            <label className="ms-label">{label} {hasSelection && <span className="ms-count-badge">{selected.length}</span>}</label>
+            <div role="button" tabIndex={0} className={`ms-trigger ${isOpen ? 'ms-trigger--open' : ''}`} onClick={() => setIsOpen(!isOpen)}>
+                <span className="ms-trigger-left">
+                    {hasSelection ? (
+                        <span className="ms-pills-row">
+                            {visiblePills.map((val) => (
+                                <span key={val} className="ms-pill">{val}
+                                    <button type="button" className="ms-pill-x" onClick={(e) => { e.stopPropagation(); toggleOption(val); }}>×</button>
+                                </span>
+                            ))}
+                            {overflowCount > 0 && <span className="ms-pill-more">+{overflowCount}</span>}
+                        </span>
+                    ) : <span className="ms-placeholder">All</span>}
+                </span>
+                <HiChevronDown className={`ms-arrow ${isOpen ? 'ms-arrow--up' : ''}`} />
+            </div>
+            {isOpen && (
+                <div className="ms-dropdown">
+                    <div className="ms-search-wrap">
+                        <input ref={searchRef} type="text" className="ms-search" placeholder="Search..." value={search} onChange={(e) => setSearch(e.target.value)} />
+                    </div>
+                    <div className="flex justify-between px-3 py-1 border-b border-white/10">
+                        <button className="text-[10px] font-bold text-blue-300 hover:text-white" onClick={() => onChange(options)}>Select All</button>
+                        <button className="text-[10px] font-bold text-red-400 hover:text-red-300" onClick={() => onChange([])}>Clear</button>
+                    </div>
+                    <ul className="ms-options-list">
+                        {filteredOptions.length === 0 ? <li className="ms-no-results">No results found</li> : filteredOptions.map((opt) => {
+                            const isSelected = selected.includes(opt);
+                            return (
+                                <li key={opt} className={`ms-option ${isSelected ? 'ms-option--selected' : ''}`} onClick={() => toggleOption(opt)}>
+                                    <span className={`ms-checkbox ${isSelected ? 'ms-checkbox--checked' : ''}`}>{isSelected && <HiCheck className="ms-check-icon" />}</span>
+                                    <span className="ms-option-text">{opt}</span>
+                                </li>
+                            );
+                        })}
+                    </ul>
+                </div>
+            )}
+        </div>
+    );
+};
+
+const Dashboard = ({ user }) => {
+    console.log("===== DASHBOARD USER =====");
+console.log(user);
+console.log("User Type:", user?.type);
+console.log("Allowed Customers:", user?.allowedCustomers);
+
+    const [activeFilter, setActiveFilter] = useState('');
+
+    const [buData, setBuData] = useState([]);
+    const [loaData, setLoaData] = useState([]);
+    const [selectedStatus, setSelectedStatus] = useState('Active');
+    // 🔥 New dedicated state for WBS Type
+    const [selectedWbsType, setSelectedWbsType] = useState('All');
+
+    // FILTER OPTIONS for YEARS, PERIODS, CUSTOMERS
+    const [filterOptions, setFilterOptions] = useState({ bus: [], years: [], periods: [], customers: [], loa_names: [], wbs_types: [] });
+
+    const [selectedYears, setSelectedYears] = useState([]);
+    const [selectedPeriods, setSelectedPeriods] = useState([]);
+
+    const [showYearDropdown, setShowYearDropdown] = useState(false);
+    const [showPeriodDropdown, setShowPeriodDropdown] = useState(false);
+
+    const [selectedBus, setSelectedBus] = useState([]); // 🔥 State for BU
+    const [showBuDropdown, setShowBuDropdown] = useState(false);
+    const buRef = useRef();
+
+    // 🔥 NAYA: Category Type State
+    const [selectedCategoryTypes, setSelectedCategoryTypes] = useState(['All']);
+    const [showCategoryTypeDropdown, setShowCategoryTypeDropdown] = useState(false);
+    const categoryTypeRef = useRef();
+
+    const [showAllLoa, setShowAllLoa] = useState(false);
+    const loaGraphRef = useRef();
+
+    const [loading, setLoading] = useState(false);
+
+    const yearRef = useRef();
+    const periodRef = useRef();
+    const customerRef = useRef();
+
+    // Refs & States for the NEW Top LOA Filter
+    const topLoaRef = useRef();
+    const [showTopLoaDropdown, setShowTopLoaDropdown] = useState(false);
+    const [topLoaSearch, setTopLoaSearch] = useState('');
+
+    const [loaSearch, setLoaSearch] = useState('');
+    const [showLoaDropdown, setShowLoaDropdown] = useState(false);
+    const [selectedLoas, setSelectedLoas] = useState([]);
+
+    const [selectedCustomers, setSelectedCustomers] = useState([]);
+    const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
+
+    const loaFilterRef = useRef();
+
+    const [tableData, setTableData] = useState([]);
+    const [tableView, setTableView] = useState('bu');
+
+    const allowedCustomers = user?.allowedCustomers || [];
+
+    const [trendData, setTrendData] = useState([]);
+    const [trendLoas, setTrendLoas] = useState([]);
+    const [selectedTrendLoa, setSelectedTrendLoa] = useState('');
+
+
+useEffect(() => {
+    axios
+        .get(`${process.env.REACT_APP_API_URL}/api/data/trend-loas`)
+        .then((res) => {
+            setTrendLoas(res.data);
+        })
+        .catch(console.error);
+}, []);
+
+useEffect(() => {
+    fetchTrendData();
+}, [selectedTrendLoa, selectedStatus, selectedWbsType ]);
+
+const fetchTrendData = async () => {
+    try {
+        const res = await axios.get(
+            `${process.env.REACT_APP_API_URL}/api/data/non-committed-trend`,
+            {
+                params: {
+                    loa_name: selectedTrendLoa,
+                    active_inactive: selectedStatus,
+                    wbs_type: selectedWbsType, // 🔥 Sync Trend
+                    category_type: selectedCategoryTypes.join(',') // 🔥 YAHAN ADD KIYA
+                }
+            }
+        );
+        setTrendData(res.data);
+    } catch (err) {
+        console.error(err);
+    }
+};
+
+// fetching table data for BU and Cost
+useEffect(() => {
+    fetchTableData();
+}, [tableView, selectedYears, selectedPeriods, selectedCustomers, selectedLoas, selectedStatus, selectedWbsType, selectedBus, selectedCategoryTypes]);
+
+const fetchTableData = async () => {
+
+    try {
+        let endpoint = '';
+        // BU TABLE
+        if (tableView === 'bu') {
+            endpoint = 'final-dashboard-table';
+        }
+
+        // LOA TABLE
+        else if (tableView === 'loa') {
+            endpoint = 'cost-view-table';
+        }
+
+        // CUSTOMER TABLE
+        else if (tableView === 'customer') {
+            endpoint = 'customer-view-table';
+        }
+
+        else if (tableView === 'bu-customer') {
+            endpoint = 'bu-customer-view-table';
+        }
+
+        else if (tableView === 'customer-bu') {
+            endpoint = 'customer-bu-view-table';
+        }
+        else if (tableView === 'negative-loa') {
+            endpoint = 'negative-loa-table';
+        }
+        else if (tableView === 'customer-bu-loa') {
+            endpoint = 'customer-bu-loa-view-table';
+        }
+
+        const bu =
+            selectedBus.join(',');
+        const category_type = selectedCategoryTypes.join(',');
+        const years =
+            selectedYears.join(',');
+
+        const periods =
+            selectedPeriods.join(',');
+
+        const customers =
+            selectedCustomers.join(',');
+
+        const loa_names =
+            selectedLoas.join(',');
+
+        const res = await axios.get(
+            `${process.env.REACT_APP_API_URL}/api/data/${endpoint}`,
+            {
+                params: {
+
+                    bu: selectedBus.join(','), // 🔥 Pass BU
+                    years,
+                    periods,
+                    customers,
+                    loa_names,
+                    active_inactive: selectedStatus,
+                    wbs_type: selectedWbsType, // 🔥 Added new filter
+                    category_type: selectedCategoryTypes.join(','), // 🔥 Added Category Type filter
+                    type: user?.type,
+                    allowedCustomers: allowedCustomers.join(',')
+                }
+            }
+        );
+        setTableData(res.data)
+    } catch (err) {
+        console.log(
+            'Error fetching table:',
+            err
+        );
+    }
+};
+
+
+const columnsToShow =
+
+    // BU VIEW
+    tableView === 'bu'
+    ? [
+        'bu',
+        'asbl',
+        'asbl_loa',
+        'ptd',
+        'open_commitment',
+        'non_committed',
+        'eac',
+        'eac_vs_asbl'
+    ]
+
+    // BU + CUSTOMER VIEW
+    : tableView === 'bu-customer'
+    ? [
+        'bu',
+        'customer',
+        'asbl',
+        'asbl_loa',
+        'ptd',
+        'open_commitment',
+        'non_committed',
+        'eac',
+        'eac_vs_asbl'
+    ]
+
+    // LOA VIEW
+    : tableView === 'loa'
+    ? [
+        'bu',
+        'customer',
+        'loa_id',
+        'loa_name',
+        'asbl',
+        'asbl_loa',
+        'ptd',
+        'open_commitment',
+        'non_committed',
+        'eac',
+        'eac_vs_asbl'
+    ]
+
+    // CUSTOMER + BU VIEW
+    : tableView === 'customer-bu'
+    ? [
+        'customer',
+        'bu',
+        'asbl',
+        'asbl_loa',
+        'ptd',
+        'open_commitment',
+        'non_committed',
+        'eac',
+        'eac_vs_asbl'
+    ]
+
+    : tableView === 'negative-loa'
+    ? [
+        'bu',
+        'customer',
+        'loa_id',
+        'loa_name',
+        'asbl',
+        'asbl_loa',
+        'ptd',
+        'open_commitment',
+        'eac',
+        'eac_vs_asbl'
+    ]
+
+    // CUSTOMER + BU _ LOA VIEW
+    : tableView === 'customer-bu-loa'
+    ? [
+        'customer',
+        'bu',
+        'loa_name',
+        'asbl',
+        'asbl_loa',
+        'ptd',
+        'open_commitment',
+        'non_committed',
+        'eac',
+        'eac_vs_asbl'
+    ]
+
+    // CUSTOMER VIEW
+    : [
+        'customer',
+        'asbl',
+        'asbl_loa',
+        'ptd',
+        'open_commitment',
+        'non_committed',
+        'eac',
+        'eac_vs_asbl'
+    ];
+
+<DataGrid rows={tableData} columns={columnsToShow} getRowId={(row) => row.BU}/>
+
+const exportToExcel = () => {
+  const worksheet = XLSX.utils.json_to_sheet(tableData);
+  const workbook = XLSX.utils.book_new();
+
+  XLSX.utils.book_append_sheet(workbook, worksheet, "Dashboard Table");
+
+  XLSX.writeFile(workbook, "final_dashboard_table.xlsx");
+};
+
+    // =========================================
+    // CLOSE DROPDOWN ON OUTSIDE CLICK
+    // =========================================
+
+    useEffect(() => {
+
+        const handleClickOutside = (event) => {
+
+            if (buRef.current && !buRef.current.contains(event.target)) {
+                    setShowBuDropdown(false);
+                }
+
+            if (categoryTypeRef.current && !categoryTypeRef.current.contains(event.target)) {
+                setShowCategoryTypeDropdown(false);
+            }
+
+            if (
+                yearRef.current &&
+                !yearRef.current.contains(event.target)
+            ) {
+                setShowYearDropdown(false);
+            }
+
+            if (
+                periodRef.current &&
+                !periodRef.current.contains(event.target)
+            ) {
+                setShowPeriodDropdown(false);
+            }
+
+            if (
+                loaFilterRef.current &&
+                !loaFilterRef.current.contains(event.target)
+            ) {
+                setShowLoaDropdown(false);
+            }
+            if (
+                customerRef.current &&
+                !customerRef.current.contains(event.target)
+            ) {
+                setShowCustomerDropdown(false);
+            }
+            // Close Top LOA dropdown on outside click
+            if (
+                topLoaRef.current &&
+                !topLoaRef.current.contains(event.target)
+            ) {
+                setShowTopLoaDropdown(false);
+            }
+        };
+
+        document.addEventListener('mousedown', handleClickOutside);
+
+        return () => {
+            document.removeEventListener(
+                'mousedown',
+                handleClickOutside
+            );
+        };
+
+    }, []);
+
+    // =========================================
+    // FETCH FILTERS
+    // =========================================
+
+    useEffect(() => {
+    const fetchFilters = async () => {
+        try {
+                const bu =
+                    selectedBus.join(',');
+                const category_type = selectedCategoryTypes.join(',');
+                const years =
+                    selectedYears.join(',');
+
+                const periods =
+                    selectedPeriods.join(',');
+
+                const customers =
+                    selectedCustomers.join(',');
+
+                const loa_names =
+                    selectedLoas.join(',');
+
+                const res = await axios.get(
+                    `${process.env.REACT_APP_API_URL}/api/data/dashboard-filters`,
+                    {
+                        params: {
+                            bu,
+                            years,
+                            periods,
+                            customers,
+                            loa_names,
+                            active_inactive: selectedStatus,
+                            type: user?.type,
+                            wbs_type: selectedWbsType, // 🔥 Added
+                            category_type: selectedCategoryTypes.join(','), // 🔥 Added
+                            allowedCustomers: allowedCustomers.join(',')
+                        }
+                    }
+                );
+                setFilterOptions(res.data);
+            } catch (err) {
+                console.error(err);
+            }
+        };
+        fetchFilters();
+    }, [
+        selectedBus,
+        selectedYears,
+        selectedPeriods,
+        selectedCustomers,
+        selectedLoas,
+        selectedStatus,
+        selectedWbsType // 🔥 added dependency for new filter
+    ]);
+
+    // =========================================
+    // FETCH DATA
+    // =========================================
+
+    useEffect(() => {
+        const fetchData = async () => {
+            try {
+                setLoading(true);
+
+                // Saare parameters ko ek baar yahan extract kar liya
+                const bu = selectedBus.join(',');
+                const years = selectedYears.join(',');
+                const periods = selectedPeriods.join(',');
+                const customers = selectedCustomers.join(',');
+                const loa_names = selectedLoas.join(',');
+                const category_type = selectedCategoryTypes.join(','); // 🔥 NAYA PARAMETER
+
+                // Common params object bana diya taaki API mein pass karna aasan ho
+                const commonParams = {
+                    bu,
+                    years,
+                    periods,
+                    customers,
+                    loa_names,
+                    category_type, // 🔥 YAHAN DAAL DIYA (Ab ye dono API mein automatically jayega)
+                    active_inactive: selectedStatus,
+                    showAll: showAllLoa,
+                    type: user?.type,
+                    wbs_type: selectedWbsType,
+                    allowedCustomers: allowedCustomers.join(',')
+                };
+
+                const [buRes, loaRes] = await Promise.all([
+                    // BU Analytics API
+                    axios.get(`${process.env.REACT_APP_API_URL}/api/data/analytics-bu`, {
+                        params: commonParams
+                    }),
+
+                    // LOA Analytics API (Yahan miss hua tha pichli baar)
+                    axios.get(`${process.env.REACT_APP_API_URL}/api/data/analytics-loa`, {
+                        params: commonParams
+                    })
+                ]);
+
+                setBuData(buRes.data);
+                setLoaData(loaRes.data);
+
+            } catch (err) {
+                console.error(err);
+            } finally {
+                setLoading(false);
+            }
+        };
+        fetchData();
+    }, [selectedYears, selectedPeriods, selectedCustomers, selectedLoas, showAllLoa, selectedStatus, selectedWbsType, selectedBus]);
+
+    // =========================================
+    // YEAR CHANGE
+    // =========================================
+    const handleYearChange = (year, checked) => {
+        let updatedYears = [];
+        if (checked) {
+            updatedYears = [...selectedYears, year];
+        } else {
+            updatedYears = selectedYears.filter((y) => y !== year);
+        }
+
+        setSelectedYears(updatedYears);
+
+        // AUTO SYNC PERIODS
+        if (updatedYears.length > 0) {
+            // 🔥 FIX: Check kiya hai ki 'p' null na ho aur usey string mein convert kiya hai
+            const syncedPeriods = (filterOptions.periods || []).filter((p) => {
+                if (!p) return false; // Agar period null hai toh skip karein
+                return updatedYears.some((y) => p.toString().startsWith(y));
+            });
+            setSelectedPeriods(syncedPeriods);
+        } else {
+            setSelectedPeriods([]);
+        }
+    };
+
+    // =========================================
+    // PERIOD CHANGE
+    // =========================================
+
+    const handlePeriodChange = (period, checked) => {
+        let updatedPeriods = [];
+        if (checked) {
+            updatedPeriods = [...selectedPeriods, period];
+        } else {
+            updatedPeriods = selectedPeriods.filter((p) => p !== period);
+        }
+        setSelectedPeriods(updatedPeriods);
+
+        // 🔥 Safety Check: p.split karne se pehle check karein p null na ho
+        const syncedYears = [
+            ...new Set(
+                updatedPeriods
+                    .filter(p => p != null) 
+                    .map((p) => p.toString().split('-')[0])
+            )
+        ];
+        setSelectedYears(syncedYears);
+    };
+
+const filteredLoaOptions = loaData.filter((item) =>
+    item.loa_name
+        ?.toLowerCase()
+        .includes(loaSearch.toLowerCase())
+);
+
+// Search logic for top bar LOA selector (Maps over ALL database-filters LOAs)
+const filteredTopLoaOptions = (filterOptions.loa_names || []).filter((loa) =>
+    loa?.toLowerCase().includes(topLoaSearch.toLowerCase())
+);
+
+const resetAllFilters = () => {
+    setSelectedBus([]);
+    setSelectedYears([]);
+    setSelectedPeriods([]);
+    setSelectedCustomers([]);
+    setSelectedLoas([]);
+    setSelectedWbsType('All'); // 🔥 Reset to All
+    setLoaSearch('');
+    setShowAllLoa(false);
+    // Default Active
+    setSelectedStatus('Active')
+    setSelectedCategoryTypes(['All']); // Add this inside reset function
+};
+
+const totalASBL = buData.reduce(
+    (sum, item) => sum + Number(item.asbl || 0),
+    0
+);
+
+const totalPTD = buData.reduce(
+    (sum, item) => sum + Number(item.ptd || 0),
+    0
+);
+
+const totalEAC = buData.reduce(
+    (sum, item) => sum + Number(item.eac || 0),
+    0
+);
+
+const predefinedOrder = ['IP', 'Optics', 'FN'];
+const sortedBuData = [...buData].sort((a, b) => {
+    const indexA = predefinedOrder.indexOf(a.bu);
+    const indexB = predefinedOrder.indexOf(b.bu);
+    // Agar koi naya BU aata hai jo list mein nahi hai, toh usey last mein rakho
+    return (indexA === -1 ? 99 : indexA) - (indexB === -1 ? 99 : indexB);
+});
+
+const ptdCompletion =
+    totalASBL > 0
+        ? ((totalPTD / totalASBL) * 100).toFixed(1)
+        : "0.0";
+
+const eacCompletion =
+    totalASBL > 0
+        ? ((totalEAC / totalASBL) * 100).toFixed(1)
+        : "0.0";
+
+const displayLoaData = showAllLoa
+    ? loaData
+    : loaData.slice(0, 10);
+
+    return (
+        <div className="p-6 bg-slate-100 min-h-screen space-y-6">
+
+            {/* 🔥 1. HEADER SECTION (Upar alag se) */}
+            {/* <div className="mb-2 px-2">
+                <h1 className="text-3xl font-black text-slate-800">
+                    Charts Analytics
+                </h1>
+                <p className="text-slate-500 text-sm mt-1 font-medium">
+                    Business Unit & Project Analysis
+                </p>
+            </div> */}
+
+            {/* 🔥 2. FULL WIDTH FILTERS BAR */}
+            <div className="fb-wrapper w-full shadow-sm">
+                <div className="fb-grid">
+                    
+                    {/* BU Filter */}
+                    <div className="fb-cell" style={{ flex: '1 1 100px', minWidth: 0 }}>
+                        <DashMultiSelect label="BU" options={filterOptions.bus || []} selected={selectedBus} onChange={setSelectedBus} />
+                    </div>
+
+                    {/* Customer Filter */}
+                    <div className="fb-cell" style={{ flex: '1 1 180px', minWidth: 0 }}>
+                        <DashMultiSelect label="Customer" options={filterOptions.customers || []} selected={selectedCustomers} onChange={setSelectedCustomers} />
+                    </div>
+
+                    {/* LOA Name Filter */}
+                    <div className="fb-cell" style={{ flex: '1 1 200px', minWidth: 0 }}>
+                        <DashMultiSelect label="LOA Name" options={filterOptions.loa_names || []} selected={selectedLoas} onChange={setSelectedLoas} />
+                    </div>
+
+                    {/* Year Filter */}
+                    <div className="fb-cell" style={{ flex: '1 1 90px', minWidth: 0 }}>
+                        <DashMultiSelect label="Year" options={filterOptions.years || []} selected={selectedYears} onChange={handleYearChange} />
+                    </div>
+
+                    {/* Period Filter */}
+                    <div className="fb-cell" style={{ flex: '1 1 100px', minWidth: 0 }}>
+                        <DashMultiSelect label="Period" options={filterOptions.periods || []} selected={selectedPeriods} onChange={handlePeriodChange} />
+                    </div>
+
+                    {/* WBS Type Filter (Single Select) */}
+                    <div className="fb-cell" style={{ flex: '1 1 120px', minWidth: 0 }}>
+                        <label className="ms-label">WBS Type</label>
+                        <div className={`w-full h-[34px] rounded-lg border flex items-center px-2 cursor-pointer transition-colors ${selectedWbsType === 'All' ? 'bg-orange-50 border-orange-400 ring-2 ring-orange-200 animate-pulse' : 'bg-[#004593] border-blue-600'}`}>
+                            <select
+                                value={selectedWbsType}
+                                onChange={(e) => setSelectedWbsType(e.target.value)}
+                                className={`w-full bg-transparent outline-none cursor-pointer text-[11px] font-bold appearance-none ${selectedWbsType === 'All' ? 'text-orange' : 'text-white'}`}
+                            >
+                                <option value="All" className="bg-white text-black">All</option>
+                                {filterOptions.wbs_types && filterOptions.wbs_types.map((type) => (
+                                    <option key={type} value={type} className="bg-[#004593] text-white">{type}</option>
+                                ))}
+                            </select>
+                            <HiChevronDown className={`flex-shrink-0 ${selectedWbsType === 'All' ? 'text-orange-600' : 'text-white'}`} />
+                        </div>
+                    </div>
+
+                    {/* Active/Inactive Filter (Single Select) */}
+                    <div className="fb-cell" style={{ flex: '1 1 100px', minWidth: 0 }}>
+                        <label className="ms-label">Status</label>
+                        <div className="w-full h-[34px] rounded-lg border bg-[#004593] border-blue-600 flex items-center px-2 cursor-pointer">
+                            <select
+                                value={selectedStatus}
+                                onChange={(e) => setSelectedStatus(e.target.value)}
+                                className="w-full bg-transparent text-white outline-none cursor-pointer text-[11px] font-bold appearance-none"
+                            >
+                                <option value="Active" className="bg-[#004593] text-white">Active</option>
+                                <option value="Inactive" className="bg-[#004593] text-white">Inactive</option>
+                                <option value="" className="bg-[#004593] text-white">All</option>
+                            </select>
+                            <HiChevronDown className="text-white flex-shrink-0" />
+                        </div>
+                    </div>
+
+                    {/* Category Type Filter */}
+                    <div className="fb-cell" style={{ flex: '1 1 140px', minWidth: 0 }}>
+                        <DashMultiSelect label="Category Type" options={['All', 'Local Materials']} selected={selectedCategoryTypes} onChange={setSelectedCategoryTypes} />
+                    </div>
+
+                    {/* Reset Button */}
+                    <div className="flex items-end pb-[2px]" style={{ flex: '0 0 auto' }}>
+                        <button onClick={resetAllFilters} className="fb-reset-btn px-4 h-[34px]" title="Reset All Filters">
+                            <HiOutlineRefresh className="fb-reset-icon" />
+                            Reset
+                        </button>
+                    </div>
+
+                </div>
+            </div>
+
+
+            {/* 🔥 NEW SOFT WARNING ALERT BANNER ON DASHBOARD PAGE IF WBS TYPE IS NOT SELECTED */}
+            {selectedWbsType === 'All' && (
+                <div className="mb-4 p-4 border border-orange-200 bg-orange-50/80 rounded-3xl text-sm text-orange-800 flex items-center gap-3 animate-pulse">
+                    <span className="text-lg">⚠️</span>
+                    <div>
+                        <span className="font-extrabold uppercase tracking-wide mr-1.5">ASBL & PTD Analytics Locked:</span> 
+                        Please select a specific <strong>WBS Type</strong> (Project, AMC, or Warranty) from the filter bar above to unlock and view the ASBL and PTD columns/graphs.
+                    </div>
+                </div>
+            )}
+
+            {user?.type !== 'user' && (
+            <div className="mt-6 bg-white p-4 rounded-xl shadow">
+                <div className="flex justify-between items-center mb-4">
+                    <h2 className="text-lg font-bold">Summary</h2>
+
+                    <div className="flex justify-between items-center flex-wrap w-full">
+                    {/* Left Side Buttons */}
+                    
+                    {/* Toggle Button for BU lvele table and Cost level table view */}
+                    <div className="flex gap-3 flex-wrap mr-auto">
+
+                        {/* BU TOGGLE */}
+
+                        <button
+                            onClick={() =>
+                                setTableView(
+                                    tableView === 'bu'
+                                        ? 'bu-customer'
+                                        : 'bu'
+                                )
+                            }
+                            className={`
+                                px-5 py-2 rounded-xl text-sm font-bold transition-all duration-200
+
+                                ${
+                                    tableView === 'bu'
+                                    || tableView === 'bu-customer'
+
+                                        ? 'bg-blue-700 text-white shadow-lg scale-105'
+
+                                        : 'bg-blue-100 text-blue-700 hover:bg-blue-200'
+                                }
+                            `}
+                        >
+
+                            {
+                                tableView === 'bu'
+                                    ? 'BU + Customer View'
+                                    : 'BU Only View'
+                            }
+
+                        </button>
+
+                        {/* LOA VIEW */}
+
+                        <button
+                            onClick={() => setTableView('loa')}
+                            className={`
+                                px-5 py-2 rounded-xl text-sm font-bold transition-all duration-200
+
+                                ${
+                                    tableView === 'loa'
+
+                                        ? 'bg-green-700 text-white shadow-lg scale-105'
+
+                                        : 'bg-green-100 text-green-700 hover:bg-green-200'
+                                }
+                            `}
+                        >
+                            BU+Customer+LOA View
+                        </button>
+
+                        </div>
+
+                        {/* Right Side Buttons */}
+                        <div className="flex gap-3 flex-wrap ml-8">
+
+                        {/* CUSTOMER TOGGLE */}
+
+                        <button
+                            onClick={() =>
+                                setTableView(
+                                    tableView === 'customer'
+                                        ? 'customer-bu'
+                                        : 'customer'
+                                )
+                            }
+                            className={`
+                                px-5 py-2 rounded-xl text-sm font-bold transition-all duration-200
+
+                                ${
+                                    tableView === 'customer'
+                                    || tableView === 'customer-bu'
+
+                                        ? 'bg-purple-700 text-white shadow-lg scale-105'
+
+                                        : 'bg-purple-100 text-purple-700 hover:bg-purple-200'
+                                }
+                            `}
+                        >
+
+                            {
+                                tableView === 'customer'
+                                    ? 'Customer + BU View'
+                                    : 'Customer Only View'
+                            }
+
+                        </button>
+
+                        {/* customer-bu-LOA BUTTON */}
+                        <button
+                            onClick={() => setTableView('customer-bu-loa')}
+                            className={`
+                                px-5 py-2 rounded-xl text-sm font-bold transition-all duration-200
+                                ${
+                                    tableView === 'customer-bu-loa'
+                                        ? 'bg-red-700 text-white shadow-lg scale-105'
+                                        : 'bg-red-100 text-red-700 hover:bg-red-200'
+                                }
+                            `}
+                        >
+                            Customer+BU+LOA View
+                        </button>
+
+                        {/* -ve LOA BUTTON */}
+                        <button
+                            onClick={() => setTableView('negative-loa')}
+                            className={`
+                                px-5 py-2 rounded-xl text-sm font-bold transition-all duration-200
+                                ${
+                                    tableView === 'negative-loa'
+                                        ? 'bg-red-700 text-white shadow-lg scale-105'
+                                        : 'bg-red-100 text-red-700 hover:bg-red-200'
+                                }
+                            `}
+                        >
+                            -ve LOA View
+                        </button>
+                        </div>
+
+
+                    </div>
+                    <button
+                        onClick={exportToExcel}
+                        className="
+                            bg-blue-700 text-white
+                            px-4 py-2 rounded-lg
+                            ml-8
+                            flex items-center gap-2
+                            transition-all duration-200
+                            hover:scale-105
+                            hover:bg-blue-800 font-bold
+                        "
+                    >
+                        <span>📥</span>
+                        <span>Export</span>
+                    </button>
+                </div>
+
+                <div className="overflow-auto max-h-[500px] border border-gray-200 rounded-xl">
+                    <table className="min-w-full border border-gray-200 text-sm">
+
+                    <thead className="bg-gray-100 sticky top-0 z-10">
+                        <tr>
+                            {columnsToShow.map((col) => (
+                            <th
+                                key={col}
+                                className="border px-3 py-2 text-left"
+                            >
+                                {
+                                col
+                                    .replaceAll('_', ' ')
+                                    .toUpperCase()
+                                }
+                            </th>
+                            ))}
+                        </tr>
+                    </thead>
+
+                        <tbody>
+                            {tableData &&
+                            tableData.length > 0 ? (
+                                tableData.map((row, index) => (
+                                <tr
+                                    key={index}
+                                    className="hover:bg-gray-50"
+                                >
+                                    {columnsToShow.map((col) => (
+                                        <td
+                                            key={col}
+                                            className="border px-3 py-2"
+                                        >
+                                            {/*  ASBL & PTD will remain completely blank when hidden */}
+                                            {(col === 'asbl' || col === 'ptd') && row[col] === null ? (
+                                                "" 
+                                            ) : (
+                                                row[col]
+                                            )}
+                                        </td>
+                                    ))}
+                                </tr>
+                                ))
+                            ) : (
+                                <tr>
+                                <td
+                                    colSpan={columnsToShow.length}
+                                    className="text-center py-4 text-gray-500"
+                                >
+                                    No Data Found
+                                </td>
+                                </tr>
+                            )}
+                            </tbody>
+                    </table>
+                </div>
+            </div>
+            )}
+
+            {/* BU GRAPH SECTION */}
+            <div className="bg-white rounded-[2rem] shadow-lg p-6 relative border border-slate-200">
+                {loading && (
+                    <div className="absolute inset-0 bg-white/60 z-10 flex items-center justify-center rounded-[2rem]">
+                        <div className="w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+                    </div>
+                )}
+                
+                <div className="mb-6">
+                    <h2 className="text-2xl font-black text-slate-800 uppercase tracking-tight">Business Unit View</h2>
+                    {/* <p className="text-slate-400 text-sm">Performance metrics per Business Unit</p> */}
+                </div>
+
+                {/* 6 KPI Boxes */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+                    {sortedBuData.map((item) => {
+                        const ptdPerc = item.asbl > 0 ? ((item.ptd / item.asbl) * 100).toFixed(1) : "0.0";
+                        const eacPerc = item.asbl > 0 ? ((item.eac / item.asbl) * 100).toFixed(1) : "0.0";
+
+                        return (
+                            <div key={item.bu} className="bg-slate-50 border border-slate-200 rounded-3xl p-4 shadow-sm hover:shadow-md transition-all">
+                                <div className="text-xs font-black text-blue-800 uppercase mb-3 px-3 py-1.5 bg-blue-100/50 rounded-xl inline-block border border-blue-200">
+                                    BU: {item.bu}
+                                </div>
+                                
+                                <div className="grid grid-cols-2 gap-3">
+                                    <div className="bg-white p-3 rounded-2xl border border-green-100 text-center">
+                                        <p className="text-[11px] font-bold text-grey-400 uppercase mb-1">PTD Utilization%</p>
+                                        <p className="text-lg font-black text-green-600">{ptdPerc}%</p>
+                                    </div>
+                                    <div className="bg-white p-3 rounded-2xl border border-amber-100 text-center">
+                                        <p className="text-[11px] font-bold text-grey-400 uppercase mb-1">EAC vs ASBL</p>
+                                        <p className="text-lg font-black text-amber-600">{eacPerc}%</p>
+                                    </div>
+                                </div>
+                            </div>
+                        );
+                    })}
+                </div>
+
+                {/* GRAPH - Increased barSize and adjusted gap */}
+                <div className="w-full h-[480px]">
+                    <ResponsiveContainer width="100%" height="100%">
+                        <BarChart 
+                            data={sortedBuData} 
+                            margin={{ top: 40, right: 30, left: 20, bottom: 20 }}
+                            barGap={10}          /* Bars ke beech ka gap */
+                            barCategoryGap="20%" /* Categories ke beech ka gap (Kam karne se bar wide hogi) */
+                        >
+                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                            <XAxis 
+                                dataKey="bu" 
+                                axisLine={false} 
+                                tickLine={false} 
+                                tick={{ fill: '#1e293b', fontSize: 13, fontWeight: 900 }} 
+                                dy={10}
+                            />
+                            <YAxis axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontSize: 11 }} />
+                            
+                            <Tooltip
+                                cursor={{ fill: '#f8fafc' }}
+                                contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 10px 25px -5px rgba(0,0,0,0.1)' }}
+                                formatter={(value, name, props) => {
+                                    const row = props.payload;
+                                    const valStr = Number(value).toLocaleString('en-IN', { minimumFractionDigits: 2 });
+                                    if (name === "ptd") {
+                                        const perc = row.asbl > 0 ? ((row.ptd / row.asbl) * 100).toFixed(1) : "0.0";
+                                        return [`${valStr} (${perc}%)`, "PTD"];
+                                    }
+                                    if (name === "eac") {
+                                        const perc = row.asbl > 0 ? ((row.eac / row.asbl) * 100).toFixed(1) : "0.0";
+                                        return [`${valStr} (${perc}%)`, "EAC"];
+                                    }
+                                    return [valStr, name.toUpperCase()];
+                                }}
+                            />
+                            
+                            <Legend 
+                                verticalAlign="top" 
+                                align="right" 
+                                height={50} 
+                                iconType="circle" 
+                                formatter={(value) => (
+                                    <span style={{ 
+                                        color: '#475569', 
+                                        fontWeight: '800', 
+                                        textTransform: 'uppercase', 
+                                        fontSize: '12px',
+                                        marginRight: '10px' 
+                                    }}>
+                                        {value}
+                                    </span>
+                                )}
+                            />
+
+                            {/* 🔥 Increased barSize to 70 for wider bars */}
+                            <Bar dataKey="asbl" name="asbl" fill="#2563eb" radius={[8, 8, 0, 0]} barSize={120}>
+                                <LabelList 
+                                    dataKey="asbl" 
+                                    position="top" 
+                                    formatter={(v) => Number(v).toFixed(0)} 
+                                    style={{ fontSize: '11px', fontWeight: '800', fill: '#1e293b' }} 
+                                    offset={10}
+                                />
+                            </Bar>
+                            
+                            <Bar dataKey="ptd" name="ptd" fill="#10b981" radius={[8, 8, 0, 0]} barSize={120}>
+                                <LabelList 
+                                    dataKey="ptd" 
+                                    position="top" 
+                                    formatter={(v) => Number(v).toFixed(0)} 
+                                    style={{ fontSize: '11px', fontWeight: '800', fill: '#1e293b' }} 
+                                    offset={10}
+                                />
+                            </Bar>
+                            
+                            <Bar dataKey="eac" name="eac" fill="#f59e0b" radius={[8, 8, 0, 0]} barSize={120}>
+                                <LabelList 
+                                    dataKey="eac" 
+                                    position="top" 
+                                    formatter={(v) => Number(v).toFixed(0)} 
+                                    style={{ fontSize: '11px', fontWeight: '800', fill: '#1e293b' }} 
+                                    offset={10}
+                                />
+                            </Bar>
+                        </BarChart>
+                    </ResponsiveContainer>
+                </div>
+            </div>
+            {/* LOA GRAPH */}
+            <div
+                ref={loaGraphRef}
+                className="bg-white rounded-[2rem] shadow-lg p-6 relative"
+            >
+                <div className="flex items-center justify-between mb-6">
+                    <div>
+                        <h2 className="text-2xl font-black text-slate-800">
+                            LOA Name View
+                        </h2>
+                        <p className="text-slate-400 text-sm mt-1">
+                            ASBL • PTD • EAC Comparison
+                        </p>
+                    </div>
+                    <div
+                ref={loaFilterRef}
+                className="relative"
+            >
+
+                <button
+                    onClick={() =>
+                        setShowLoaDropdown(!showLoaDropdown)
+                    }
+                    className="bg-white border border-slate-300 rounded-xl px-4 py-2 text-sm font-semibold shadow-sm"
+                >
+                    Filter LOA ▼
+                </button>
+                {showLoaDropdown && (
+                    <div className="absolute right-0 mt-2 w-[320px] bg-white border border-slate-200 rounded-2xl shadow-2xl z-50 p-4">
+
+                        {/* SEARCH */}
+                        <input
+                            type="text"
+                            placeholder="Search LOA..."
+                            value={loaSearch}
+                            onChange={(e) =>
+                                setLoaSearch(e.target.value)
+                            }
+                            className="w-full border border-slate-300 rounded-xl px-3 py-2 text-sm mb-4 outline-none focus:border-blue-500"
+                        />
+
+                        {/* ACTION BUTTONS */}
+                        <div className="flex justify-between mb-3">
+                            <button
+                                className="text-[11px] font-bold text-blue-600"
+                                onClick={() => {
+                                    setSelectedLoas(
+                                        filteredLoaOptions.map(
+                                            (x) => x.loa_name
+                                        )
+                                    );
+                                }}
+                            >
+                                Select All
+                            </button>
+
+                            <button
+                                className="text-[11px] font-bold text-red-500"
+                                onClick={() => {
+                                    setSelectedLoas([]);
+                                }}
+                            >
+                                Clear
+                            </button>
+                        </div>
+
+                        {/* LOA LIST */}
+                        <div className="max-h-[300px] overflow-y-auto space-y-2">
+                            {filteredLoaOptions.map((item) => (
+                                <label
+                                    key={item.loa_name}
+                                    className="flex items-center gap-3 p-2 hover:bg-slate-100 rounded-xl cursor-pointer"
+                                >
+                                    <input
+                                        type="checkbox"
+                                        checked={selectedLoas.includes(item.loa_name)}
+                                        onChange={(e) => {
+
+                                            if (e.target.checked) {
+                                                setSelectedLoas([
+                                                    ...selectedLoas,
+                                                    item.loa_name
+                                                ]);
+
+                                            } else {
+                                                setSelectedLoas(
+                                                    selectedLoas.filter(
+                                                        (x) =>
+                                                            x !== item.loa_name
+                                                    )
+                                                );
+                                            }
+                                        }}
+                                    />
+                                    <span className="text-sm text-slate-700 font-medium">
+                                        {item.loa_name}
+                                    </span>
+                                </label>
+                            ))}
+                        </div>
+                    </div>
+                )}
+            </div>
+
+                    {/* TOGGLE BUTTON */}
+                    <button
+                        onClick={() => {
+                            setShowAllLoa(!showAllLoa);
+                            setTimeout(() => {
+                                loaGraphRef.current?.scrollIntoView({
+                                    behavior: 'smooth',
+                                    block: 'start'
+                                });
+                            }, 100);
+                        }}
+                        className="px-5 py-2 rounded-xl bg-blue-600 text-white text-sm font-bold shadow hover:bg-blue-700 transition-all"
+                    >
+                        {showAllLoa
+                            ? 'Show Top 10'
+                            : 'Show All LOAs'}
+
+                    </button>
+
+                </div>
+
+                <div className="w-full max-h-[700px] overflow-y-auto pr-2">
+                    <ResponsiveContainer width="100%" minWidth={300} height={showAllLoa ? loaData.length * 55: 700}>
+                        <BarChart
+                            data={
+                                selectedLoas.length > 0
+                                    ? displayLoaData.filter((item) =>
+                                        selectedLoas.includes(item.loa_name)
+                                    )
+                                    : displayLoaData
+                            }
+                            layout="vertical"
+
+                            barSize={18}
+                            margin={{
+                                top: 10,
+                                right: 30,
+                                left: 50,
+                                bottom: 10
+                            }}
+                        >
+
+                            <CartesianGrid
+                                strokeDasharray="3 3"
+                                horizontal={false}
+                            />
+
+                            <XAxis type="number" />
+
+                            <YAxis
+                                dataKey="loa_name"
+                                type="category"
+                                width={220}
+                                tick={{
+                                    fontSize: 11,
+                                    fill: '#475569',
+                                    fontWeight: 600
+                                }}
+                            />
+
+                            <Tooltip formatter={(value, name) => [Number(value).toFixed(2), name.toUpperCase()]}/>
+
+                            <Legend />
+
+                            {/* ASBL */}
+                            <Bar
+                                dataKey="asbl"
+                                fill="#2563eb"
+                                name="ASBL"
+                            >
+
+                                <LabelList
+                                    dataKey="asbl"
+                                    position="right"
+                                    formatter={(value) =>
+                                        Number(value).toFixed(2)
+                                    }
+                                    style={{
+                                        fontSize: '10px',
+                                        fontWeight: 'bold',
+                                        fill: '#1e293b'
+                                    }}
+                                />
+
+                            </Bar>
+
+                            {/* PTD */}
+                            <Bar
+                                dataKey="ptd"
+                                fill="#10b981"
+                                name="PTD"
+                            >
+
+                                <LabelList
+                                    dataKey="ptd"
+                                    position="right"
+                                    formatter={(value) =>
+                                        Number(value).toFixed(2)
+                                    }
+                                    style={{
+                                        fontSize: '10px',
+                                        fontWeight: 'bold',
+                                        fill: '#1e293b'
+                                    }}
+                                />
+
+                            </Bar>
+
+                            {/* EAC */}
+                            <Bar
+                                dataKey="eac"
+                                fill="#f59e0b"
+                                name="EAC"
+                            >
+                                <LabelList
+                                    dataKey="eac"
+                                    position="right"
+                                    formatter={(value) =>
+                                        Number(value).toFixed(2)
+                                    }
+                                    style={{
+                                        fontSize: '10px',
+                                        fontWeight: 'bold',
+                                        fill: '#1e293b'
+                                    }}
+                                />
+                            </Bar>
+                        </BarChart>
+                    </ResponsiveContainer>
+                </div>
+            </div>
+
+            <div className="bg-white rounded-[2rem] shadow-lg p-6 mt-8">
+
+                <div className="flex flex-col md:flex-row md:justify-between md:items-center gap-4 mb-6">
+
+                    <h2 className="text-2xl font-black text-slate-800">
+                        Non Committed Trend
+                    </h2>
+
+                    <select
+                        value={selectedTrendLoa}
+                        onChange={(e) =>
+                            setSelectedTrendLoa(e.target.value)
+                        }
+                        className="border border-slate-300 rounded-xl px-4 py-2"
+                    >
+                        <option value="">
+                            All LOAs
+                        </option>
+
+                        {trendLoas.map((item) => (
+
+                            <option
+                                key={item.loa_name}
+                                value={item.loa_name}
+                            >
+                                {item.loa_name}
+                            </option>
+
+                        ))}
+                    </select>
+
+                </div>
+
+                {/* KPI Cards */}
+                <div className="grid md:grid-cols-3 gap-4 mb-6">
+                    <div className="bg-blue-50 rounded-2xl p-5">
+                        <div className="text-sm text-slate-500">
+                            Selected LOA
+                        </div>
+
+                        <div className="text-xl font-black text-blue-700">
+                            {selectedTrendLoa || 'ALL'}
+                        </div>
+                    </div>
+
+                    <div className="bg-green-50 rounded-2xl p-5">
+                        <div className="text-sm text-slate-500">
+                            Latest Value
+                        </div>
+
+                        <div className="text-xl font-black text-green-700">
+                            {
+                                trendData.length > 0
+                                    ? Number(
+                                        trendData[
+                                            trendData.length - 1
+                                        ]?.total_non_committed
+                                    ).toFixed(2)
+                                    : '0.00'
+                            }
+                        </div>
+                    </div>
+
+                    <div className="bg-purple-50 rounded-2xl p-5">
+                        <div className="text-sm text-slate-500">
+                            Available Months
+                        </div>
+
+                        <div className="text-xl font-black text-purple-700">
+                            {trendData.length}
+                        </div>
+                    </div>
+
+                </div>
+
+                <div className="w-full h-[450px]">
+
+                    <ResponsiveContainer width="100%" height="100%">
+                        <ComposedChart data={trendData}>
+
+                            <CartesianGrid strokeDasharray="3 3" />
+
+                            <XAxis
+                                dataKey="month_year"
+                            />
+
+                            <YAxis />
+
+                            <Tooltip
+                                content={({ active, payload, label }) => {
+
+                                    if (!active || !payload || !payload.length) {
+                                        return null;
+                                    }
+
+                                    return (
+                                        <div className="bg-white p-3 rounded-xl shadow-lg border">
+
+                                            <p className="font-bold mb-2">
+                                                {label}
+                                            </p>
+
+                                            <p className="text-blue-600 font-semibold">
+                                                NON COMMITTED :
+                                                {' '}
+                                                {Number(payload[0].value).toFixed(2)}
+                                            </p>
+
+                                        </div>
+                                    );
+                                }}
+                            />
+
+                            <Legend />
+
+                            {/* Column Bar */}
+
+                            <Bar dataKey="total_non_committed" fill="#3b82f6" radius={[8, 8, 0, 0]}>
+                                <LabelList
+                                    dataKey="total_non_committed"
+                                    position="top"
+                                    formatter={(value) =>
+                                        Number(value).toFixed(0)
+                                    }
+                                />
+                            </Bar>
+
+                            {/* Trend Line */}
+                            <Line
+                                type="monotone"
+                                dataKey="total_non_committed"
+                                stroke="#1e293b"
+                                strokeWidth={3}
+                                dot={{ r: 5 }}
+                                legendType="none"
+                            />
+
+                        </ComposedChart>
+                    </ResponsiveContainer>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+export default Dashboard;
