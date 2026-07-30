@@ -1,3 +1,148 @@
+.fb-vertical-wrapper {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.fb-vertical-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 800;
+  font-size: 11px;
+  text-transform: uppercase;
+  color: #64748b;
+  margin-bottom: 20px;
+  letter-spacing: 0.05em;
+}
+
+.fb-vertical-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px; /* Filters ke beech ka vertical gap */
+}
+
+.fb-vertical-item {
+  width: 100%;
+}
+
+/* Sidebar ke andar scrollbar ko sundar banane ke liye */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 5px;
+}
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: #f1f5f9;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 10px;
+}
+
+
+/* Vertical Wrapper Logic */
+.fb-vertical-list {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.fb-vertical-item-group {
+  display: flex;
+  flex-direction: column;
+}
+
+/* 🔥 Custom Header for each Filter Item */
+.fb-item-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+  padding: 0 4px;
+}
+
+.fb-item-label {
+  font-size: 13px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  transition: color 0.2s;
+}
+
+/* 🔥 Reset Button Style */
+.fb-single-reset-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+  background: #fee2e2; /* Light Red */
+  color: #ef4444;      /* Red icon */
+  font-size: 14px;
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.fb-single-reset-btn:hover {
+  background: #fecaca;
+  transform: scale(1.1);
+}
+
+.fb-single-reset-btn:active {
+  transform: scale(0.9);
+}
+
+
+/* --- Highlighting Mandatory Filter --- */
+.fb-mandatory-highlight {
+  background: linear-gradient(to right, #eff6ff, #ffffff); /* Very light blue gradient */
+  border: 1px solid #dbeafe;
+  border-left: 4px solid #f10808; /* Thick blue left accent */
+  padding: 12px 10px;
+  border-radius: 16px;
+  margin-left: -10px; /* Thoda sa sidebar margin ke bahar niklega appealing dikhne ke liye */
+  margin-right: -10px;
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.05); /* Subtle glow */
+  position: relative;
+}
+
+/* --- Required Badge Style --- */
+.fb-required-badge {
+  background: #3b82f6;
+  color: white;
+  font-size: 8px;
+  font-weight: 900;
+  padding: 2px 6px;
+  border-radius: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+/* --- Hover Effect for Mandatory --- */
+.fb-mandatory-highlight:hover {
+  border-color: #bfdbfe;
+  box-shadow: 0 6px 15px rgba(59, 130, 246, 0.1);
+  transition: all 0.3s ease;
+}
+
+/* --- Styling active labels --- */
+.text-blue-600 {
+  color: #2563eb !important;
+  font-weight: 900 !important;
+}
+
+/* Vertical list gap management */
+.fb-vertical-list {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+
 /* ────────────────────────────────────────
    FILTERBAR WRAPPER
 ──────────────────────────────────────── */

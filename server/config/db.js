@@ -3,27 +3,27 @@ const pgFormat = require('pg-format');
 const path = require('path');
 require('dotenv').config({ path: path.join(__dirname, '../.env') });
 
+// 🚀 ENTERPRISE POOLING FOR 100 CONCURRENT USERS
 const pool = new Pool({
     host: process.env.DB_HOST || 'localhost',
     user: process.env.DB_USER || 'postgres',
-    password: process.env.DB_PASSWORD || '',
+    password: process.env.DB_PASSWORD || 'postgres',
     database: process.env.DB_NAME || 'service_cost',
     port: parseInt(process.env.DB_PORT) || 5432,
-    max: 150,
-    idleTimeoutMillis: 30000,
-    connectionTimeoutMillis: 60000, // FIX 1: Sync ke waqt wait karega, timeout nahi hoga
+    
+    max: 150, 
+    idleTimeoutMillis: 30000, 
+    connectionTimeoutMillis: 10000, 
+    maxUses: 7500, 
 });
 
-// FIX 2: Idle clients ke auto-disconnect ko safely handle karna (Console crash nahi hoga)
 pool.on('error', (err, client) => {
-    console.log('⚡ PostgreSQL Idle Client auto-reconnected gracefully.');
+    console.error('⚡ PostgreSQL Pool Error (Safe Auto-Reconnect):', err.message);
 });
 
-// UNIVERSAL MYSQL -> POSTGRES TRANSLATOR (v7.0 - Double Quotes Conflict Fixed)
-const formatQuery = (sql, params = []) => {
+// 🚀 FOOLPROOF QUERY PARSER (1:1 Value Mapping to prevent Parameter Count Mismatch)
+const formatQueryToPostgres = (sql, params = []) => {
     let text = sql.replace(/`/g, '');
-
-    // FIX: Smart Auto-Quoting (Ignores if quotes already exist!)
     text = text.replace(/"?Merged_wbs_categories"?/gi, '"Merged_wbs_categories"');
     text = text.replace(/"?Merged_wbs_category"?/gi, '"Merged_wbs_category"');
     text = text.replace(/"?open_commitment_KEUR"?/gi, '"open_commitment_KEUR"');
@@ -31,7 +31,6 @@ const formatQuery = (sql, params = []) => {
 
     let newParams = [...params];
 
-    // 1. BULK INSERT INTERCEPTOR (Excel Uploads)
     if (/VALUES\s*\?/i.test(text) && Array.isArray(newParams) && newParams.length > 0 && Array.isArray(newParams[0])) {
         const bulkValues = newParams[0]; 
         const formattedValues = pgFormat('VALUES %L', bulkValues);
@@ -39,14 +38,14 @@ const formatQuery = (sql, params = []) => {
         newParams = newParams.slice(1); 
     }
 
-    // 2. MYSQL COMMA-BASED LIMIT INTERCEPTOR (LIMIT ?, ?)
     if (/LIMIT\s*\?\s*,\s*\?/i.test(text)) {
         const limitVal = parseInt(newParams.pop()) || 100;
         const offsetVal = parseInt(newParams.pop()) || 0;
         text = text.replace(/LIMIT\s*\?\s*,\s*\?/i, `LIMIT ${limitVal} OFFSET ${offsetVal}`);
     }
 
-    // 3. PARSE SQL AND CONVERT PLACEHOLDERS (? -> $1, $2)
+    // 🔥 FIX: Inline flat parameter generation for exact match with $1, $2, $3
+    const flatParams = [];
     let index = 1;
     let inSingleQuote = false;
     let paramIdx = 0;
@@ -63,45 +62,37 @@ const formatQuery = (sql, params = []) => {
             inSingleQuote = !inSingleQuote;
             formattedSql += char;
         } else if (char === '?' && !inSingleQuote) {
-            const currentParam = newParams[paramIdx++];
-
-            if (Array.isArray(currentParam)) {
-                if (currentParam.length === 0) {
+            const val = newParams[paramIdx++];
+            if (Array.isArray(val)) {
+                if (val.length === 0) {
                     formattedSql += 'NULL';
                 } else {
-                    const placeholders = currentParam.map(() => `$${index++}`).join(', ');
-                    formattedSql += placeholders;
+                    const placeholders = [];
+                    for (const v of val) {
+                        placeholders.push(`$${index++}`);
+                        flatParams.push(v); // Adds value precisely when $ is generated
+                    }
+                    formattedSql += placeholders.join(', ');
                 }
             } else {
                 formattedSql += `$${index++}`;
+                flatParams.push(val);
             }
         } else {
             formattedSql += char;
         }
     }
 
-    // Flatten array parameters for Postgres (Handles IN (?) arrays)
-    const flattenedParams = [];
-    for (let p of newParams) {
-        if (Array.isArray(p)) {
-            flattenedParams.push(...p);
-        } else {
-            flattenedParams.push(p);
-        }
-    }
-
-    return { sql: formattedSql, params: flattenedParams };
+    return { sql: formattedSql, params: flatParams };
 };
 
 const db = {
     query: async (sql, params = []) => {
-        const { sql: pgSql, params: pgParams } = formatQuery(sql, params);
+        const { sql: pgSql, params: pgParams } = formatQueryToPostgres(sql, params);
         const res = await pool.query(pgSql, pgParams);
-        
         const rows = res.rows;
         rows.affectedRows = res.rowCount; 
         rows.insertId = res.rows[0]?.id || null;
-
         return [rows, res.fields || []];
     },
 
@@ -109,13 +100,11 @@ const db = {
         const client = await pool.connect();
         return {
             query: async (sql, params = []) => {
-                const { sql: pgSql, params: pgParams } = formatQuery(sql, params);
+                const { sql: pgSql, params: pgParams } = formatQueryToPostgres(sql, params);
                 const res = await client.query(pgSql, pgParams);
-                
                 const rows = res.rows;
                 rows.affectedRows = res.rowCount;
                 rows.insertId = res.rows[0]?.id || null;
-
                 return [rows, res.fields || []];
             },
             beginTransaction: () => client.query('BEGIN'),

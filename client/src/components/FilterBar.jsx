@@ -1,7 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { HiOutlineFilter, HiChevronDown } from 'react-icons/hi';
 import { MdFilterAlt } from 'react-icons/md';
-import { HiCheck, HiOutlineRefresh } from 'react-icons/hi';
+import { HiCheck, HiOutlineRefresh, HiOutlineBadgeCheck } from 'react-icons/hi';
+import { HiOutlineX} from 'react-icons/hi'; // Icons for reset
 import './FilterBar.css';
 
 /* ─────────────────────────────────────────
@@ -9,16 +10,16 @@ import './FilterBar.css';
    (Tumhari custom widths ke sath)
 ───────────────────────────────────────── */
 const FILTER_CONFIGS = [
-  { label: 'BU',              name: 'bu',              width: '120px' },
-  { label: 'Customer',        name: 'customer',        width: '250px' },
-  { label: 'LOA ID',          name: 'loa_id',          width: '130px' },
-  { label: 'LOA Name',        name: 'loa_name',        width: '300px' },
-  { label: 'WBS Type',        name: 'wbs_type',        width: '140px' },
-  { label: 'WBS',             name: 'wbs',             width: '300px' }, // Matches columnMapping['wbs']
-  { label: 'WBS Description', name: 'wbs_description', width: '300px' },
-  { label: 'Period',          name: 'period',          width: '110px' },
-  { label: 'Active/Inactive', name: 'active_inactive', width: '150px' },
-  { label: 'Category Type',   name: 'category_type',   width: '170px' }
+  { label: 'BU',              name: 'bu' },
+  { label: 'Customer',        name: 'customer' },
+  { label: 'LOA ID',          name: 'loa_id' },
+  { label: 'LOA Name',        name: 'loa_name' },
+  { label: 'WBS Type',        name: 'wbs_type', isMandatory: true }, // 🔥 Mandatory Flag
+  { label: 'WBS',             name: 'wbs' },
+  { label: 'WBS Description', name: 'wbs_description' },
+  { label: 'Period',          name: 'period' },
+  { label: 'Active/Inactive', name: 'active_inactive' },
+  { label: 'Category Type',   name: 'category_type' }
 ];
 
 /* ─────────────────────────────────────────
@@ -228,42 +229,56 @@ const ActiveFiltersBar = ({ filters, filterConfigs, onRemove, onClearAll }) => {
 /* ═══════════════════════════════════════════════
    MAIN FILTERBAR
 ═══════════════════════════════════════════════ */
-const FilterBar = ({ filters, options, onFilterChange, onReset }) => {
-
-  const getOptions = (name) => {
-    if (name === 'period') return sortPeriods(options.period);
-    return options[name] || [];
-  };
-
-  const handleRemoveFilter = (name) => onFilterChange(name, []);
+const FilterBar = ({ filters, options, onFilterChange }) => {
+  const getOptions = (name) => options[name] || [];
+  const handleSingleReset = (name) => onFilterChange(name, []);
 
   return (
-    <div className="fb-wrapper">
-      <div className="fb-grid">
-        {FILTER_CONFIGS.map((cfg) => (
-          <div
-            key={cfg.name}
-            className="fb-cell"
-            // 🔥 NAYA STYLE: flex: "1 1 {width}" aur minWidth: 0 zaroori hai squish karne ke liye
-            style={{ flex: `1 1 ${cfg.width}`, minWidth: 0 }}
-          >
-            <MultiSelect
-              name={cfg.name}
-              label={cfg.label}
-              options={getOptions(cfg.name)}
-              selected={filters[cfg.name] || []}
-              onChange={onFilterChange}
-            />
-          </div>
-        ))}
-      </div>
+    <div className="fb-vertical-wrapper">
+      
 
-      <ActiveFiltersBar
-        filters={filters}
-        filterConfigs={FILTER_CONFIGS}
-        onRemove={handleRemoveFilter}
-        onClearAll={onReset}
-      />
+      <div className="fb-vertical-list">
+        {FILTER_CONFIGS.map((cfg) => {
+          const isFilterActive = Array.isArray(filters[cfg.name]) && filters[cfg.name].length > 0;
+          const isMandatory = cfg.isMandatory;
+
+          return (
+            <div 
+              key={cfg.name} 
+              className={`fb-vertical-item-group ${isMandatory ? 'fb-mandatory-highlight' : ''}`}
+            >
+              <div className="fb-item-header">
+                <div className="flex items-center gap-1.5">
+                    {/* 🔥 FIXED: Sirf ek label rakha h yahan */}
+                    <span className={`fb-item-label ${isFilterActive ? 'text-blue-600' : 'text-slate-800'}`}>
+                      {cfg.label}
+                      {isMandatory && <span className="fb-required-asterisk" style={{ color: '#ef4444', marginLeft: '4px' }}>❋</span>}
+                    </span>
+                </div>
+                
+                {isFilterActive && (
+                  <button 
+                    onClick={() => handleSingleReset(cfg.name)}
+                    className="fb-single-reset-btn"
+                    title={`Clear ${cfg.label}`}
+                  >
+                    <HiOutlineX />
+                  </button>
+                )}
+              </div>
+
+              {/* MultiSelect render logic remains same */}
+              <MultiSelect
+                name={cfg.name}
+                label="" 
+                options={getOptions(cfg.name)}
+                selected={filters[cfg.name] || []}
+                onChange={onFilterChange}
+              />
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 };
