@@ -952,27 +952,27 @@ exports.getPendingUsers = async (req, res) => {
 exports.exportToExcel = async (req, res) => {
     try {
         const { showAll, collapseView, type, allowedCustomers } = req.query;
-
+ 
         const wTArr = getValArray(req.query.wbs_type, req.query, 'wbs_type');
         const wEArr = getValArray(req.query.wbs, req.query, 'wbs');
-
+ 
         // 🔥 STRICT DYNAMIC ASBL & NON-COMMITTED (Exact match with UI logic)
         const asblCols = getDynamicSumColumns(wTArr, 'asbl');
         const asblValExpression = asblCols !== "0" ? asblCols : "0";
-
+ 
         const ncCols = getDynamicNCColumns(wTArr);
         const ncValExpression = ncCols !== "0" ? ncCols : "0";
-
+ 
         let conditions = ["(categories IS NULL OR categories NOT IN ('Not to considered'))", "(cost_revenue IS NULL OR cost_revenue <> 'NTC')"];
         let baseParams = [];
         applyRLS(type, allowedCustomers, conditions, baseParams);
-
+ 
         const filterColumnMap = {
             'bu': 'bu', 'customer': 'customer', 'loa_id': 'loa_id', 'loa_name': 'loa_name',
             'wbs_type': 'wbs_type', 'wbs': 'wbs_element_single', 'wbs_description': 'wbs_description',
             'period': 'period', 'active_inactive': 'active_inactive'
         };
-
+ 
         let filterParams = [];
         Object.keys(filterColumnMap).forEach(key => {
             const vals = getValArray(req.query[key], req.query, key);
@@ -991,53 +991,58 @@ exports.exportToExcel = async (req, res) => {
                 }
             }
         });
-
+ 
         const catTypeVal = req.query.category_type || req.query['category_type[]'];
-        if (catTypeVal && !catTypeVal.includes('All') && catTypeVal !== 'All') {
-            applyCategoryTypeFilter(catTypeVal, conditions);
-        }
-
+        applyCategoryTypeFilter(catTypeVal, conditions);
+ 
         const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
         const combinedParams = [...baseParams, ...filterParams];
-
+ 
         let exportQuery = '';
-
-        // 🟢 If user is exporting COLLAPSED View
+ 
+        // 🟢 If user is exporting COLLAPSED View (Cost Level)
         if (String(collapseView) === 'true') {
-            let asblSumLogic = "MAX(asbl)"; 
-            if (wTArr && wTArr.length > 0 && !wTArr.includes('All') && !wTArr.includes('all')) {
-                let parts = [];
-                if (wTArr.some(v => String(v).toLowerCase().includes('project'))) parts.push("MAX(asbl_project)");
-                if (wTArr.some(v => String(v).toLowerCase().includes('amc'))) parts.push("MAX(asbl_amc)");
-                if (parts.length > 0) asblSumLogic = `(${parts.join(' + ')})`;
-            }
-
-            let ncSumLogic = "SUM(non_committed)";
-            if (wTArr && wTArr.length > 0 && !wTArr.includes('All') && !wTArr.includes('all')) {
-                let parts = [];
-                if (wTArr.some(v => String(v).toLowerCase().includes('project'))) parts.push("SUM(COALESCE(non_committed_project, 0))");
-                if (wTArr.some(v => String(v).toLowerCase().includes('amc'))) parts.push("SUM(COALESCE(non_committed_amc, 0))");
-                if (wTArr.some(v => String(v).toLowerCase().includes('warranty'))) parts.push("SUM(COALESCE(non_committed_warranty, 0))");
-                if (parts.length > 0) ncSumLogic = `(${parts.join(' + ')})`;
-            }
-
             exportQuery = `
                 SELECT 
                     bu, customer, loa_name, loa_id, cost_revenue,
-                    ROUND(${asblSumLogic}, 2) AS asbl, 
+                    ROUND(SUM(asbl), 2) AS asbl, 
                     ROUND(MAX(asbl_loa), 2) AS asbl_loa,
                     ROUND(SUM(ptd), 2) AS ptd,
-                    ROUND(SUM(open_commitment_KEUR), 2) AS open_commitment,
-                    ROUND(${ncSumLogic}, 2) AS non_committed,
-                    ROUND(SUM(ptd) + SUM(open_commitment_KEUR) + ${ncSumLogic}, 2) as eac,
-                    ROUND(${asblSumLogic} - (SUM(ptd) + SUM(open_commitment_KEUR) + ${ncSumLogic}), 2) as eac_vs_asbl
-                FROM final_dashboard_table
-                ${whereClause}
+                    ROUND(SUM(open_commitment), 2) AS open_commitment,
+                    ROUND(SUM(non_committed), 2) AS non_committed,
+                    ROUND(SUM(ptd) + SUM(open_commitment) + SUM(non_committed), 2) AS eac,
+                    ROUND(SUM(asbl) - (SUM(ptd) + SUM(open_commitment) + SUM(non_committed)), 2) AS eac_vs_asbl
+                FROM (
+                    SELECT 
+                        t.bu, t.customer, t.loa_id, t.loa_name, t.cost_revenue, t.categories,
+                        MAX(COALESCE(static.asbl_val, 0)) as asbl,
+                        MAX(COALESCE(static.asbl_loa_val, 0)) as asbl_loa,
+                        SUM(t.ptd_val) as ptd, 
+                        SUM(t.oc_val) as open_commitment, 
+                        MAX(COALESCE(static.nc_val, 0)) as non_committed
+                    FROM (
+                        SELECT 
+                            bu, customer, loa_id, loa_name, cost_revenue, categories, "Merged_wbs_categories",
+                            ptd as ptd_val, open_commitment_KEUR as oc_val
+                        FROM final_dashboard_table
+                        ${whereClause}
+                    ) as t
+                    LEFT JOIN (
+                        SELECT 
+                            "Merged_wbs_categories", 
+                            MAX(${asblValExpression}) as asbl_val, 
+                            MAX(asbl_loa) as asbl_loa_val,
+                            MAX(${ncValExpression}) as nc_val      
+                        FROM final_dashboard_table
+                        GROUP BY "Merged_wbs_categories"
+                    ) as static ON t."Merged_wbs_categories" = static."Merged_wbs_categories"
+                    GROUP BY t.bu, t.customer, t.loa_id, t.loa_name, t.cost_revenue, t.categories, t."Merged_wbs_categories"
+                ) as category_level_data
                 GROUP BY bu, customer, loa_name, loa_id, cost_revenue
-                ORDER BY loa_name ASC
+                ORDER BY loa_name ASC, cost_revenue ASC
             `;
         } 
-        // 🟢 If user is exporting NORMAL View (Identical to getWbsSummary)
+        // 🟢 If user is exporting NORMAL View (Element Level - Identical to UI)
         else {
             exportQuery = `
                 SELECT 
@@ -1065,19 +1070,17 @@ exports.exportToExcel = async (req, res) => {
                     FROM final_dashboard_table
                     GROUP BY "Merged_wbs_categories"
                 ) as static ON t."Merged_wbs_categories" = static."Merged_wbs_categories"
-                
                 GROUP BY t.bu, t.customer, t.loa_id, t.loa_name, t.cost_revenue, t.categories, t."Merged_wbs_categories"
                 HAVING 1=1 
                 ${String(showAll) === 'false' ? 'AND (ABS(SUM(t.ptd_val)) > 0.01 OR ABS(SUM(t.oc_val)) > 0.01 OR ABS(MAX(COALESCE(static.asbl_val, 0))) > 0.01 OR ABS(MAX(COALESCE(static.nc_val, 0))) > 0.01)' : ''}
-                ORDER BY loa_name ASC, cost_revenue ASC
+                ORDER BY loa_name ASC, categories ASC
             `;
         }
-
+ 
         const [rows] = await db.query(exportQuery, combinedParams);
-
+ 
         res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
         res.setHeader('Content-Disposition', `attachment; filename=Summary_Export_${new Date().getTime()}.xlsx`);
-        
         const workbook = new ExcelJS.stream.xlsx.WorkbookWriter({ stream: res });
         const worksheet = workbook.addWorksheet('Matrix Data');
         
@@ -1099,7 +1102,7 @@ exports.exportToExcel = async (req, res) => {
             { header: 'EAC vs ASBL', key: 'eac_vs_asbl', width: 15 }
         );
         worksheet.columns = cols;
-
+ 
         // Ensure proper numeric formatting in Excel
         rows.forEach(row => {
             const cleanRow = { ...row };
@@ -1112,9 +1115,8 @@ exports.exportToExcel = async (req, res) => {
             });
             worksheet.addRow(cleanRow).commit();
         });
-        
         await workbook.commit();
-
+ 
     } catch (error) {
         console.error("Export Error:", error);
         res.status(500).send("Export failed: " + error.message);
