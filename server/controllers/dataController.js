@@ -28,79 +28,54 @@ const applyRLS = (type, allowedCustomers, conditions, params) => {
     conditions.push(`1=0`);
 };
 
-
-// ==========================================
-// COMMON Dashboard Filters FUNCTION (Postgres Case & Space Safe)
-// ==========================================
+// ==============================
+// COMMON Dashboard Filters FUNCTION
+// ==============================
 const applyDashboardFilters = (query, conditions, params) => {
-    // 🔥 Added wbs and wbs_description here
-    const { bu, years, periods, customers, loa_names, active_inactive, category_type, wbs_type, wbs, wbs_description } = query;
+    const { bu, years, periods, customers, loa_names, active_inactive, category_type } = query;
 
     if (!category_type) {
-        conditions.push(`TRIM(LOWER(categories)) <> 'local materials'`);
+        conditions.push(`categories <> 'Local Materials'`);
     } else {
-        let catArr = Array.isArray(category_type) ? category_type : category_type.split(',').map(v => v.trim().toLowerCase());
-        const hasAll = catArr.includes('all');
-        const hasLM = catArr.includes('local materials');
-        if (hasAll && !hasLM) conditions.push(`TRIM(LOWER(categories)) <> 'local materials'`);
-        else if (!hasAll && hasLM) conditions.push(`TRIM(LOWER(categories)) = 'local materials'`);
-        else if (!hasAll && !hasLM) conditions.push(`TRIM(LOWER(categories)) <> 'local materials'`);
+        let catArr = Array.isArray(category_type) ? category_type : category_type.split(',').map(v => v.trim());
+        const hasAll = catArr.includes('All');
+        const hasLM = catArr.includes('Local Materials');
+
+        if (hasAll && !hasLM) conditions.push(`categories <> 'Local Materials'`);
+        else if (!hasAll && hasLM) conditions.push(`categories = 'Local Materials'`);
+        else if (!hasAll && !hasLM) conditions.push(`categories <> 'Local Materials'`);
     }
 
     if (bu) {
-        const buArray = bu.split(',').map(b => b.trim().toLowerCase()).filter(Boolean);
-        if (buArray.length > 0) { conditions.push(`TRIM(LOWER(bu)) IN (?)`); params.push(buArray); }
-    }
-    
-    if (wbs_type && wbs_type !== 'All') {
-        const wbsArray = wbs_type.split(',').map(w => w.trim().toLowerCase()).filter(Boolean);
-        if (wbsArray.length > 0) { conditions.push(`TRIM(LOWER(wbs_type)) IN (?)`); params.push(wbsArray); }
-    }
-
-    // 🔥 NEW: WBS Filter
-    if (wbs && wbs !== 'All') {
-        const wbsArr = wbs.split(',').map(w => w.trim().toLowerCase()).filter(Boolean);
-        if (wbsArr.length > 0 && !wbsArr.includes('all')) {
-            conditions.push(`TRIM(LOWER(wbs_element_single)) IN (?)`);
-            params.push(wbsArr);
+        const buArray = bu.split(',').map(b => b.trim()).filter(Boolean);
+        if (buArray.length > 0) {
+            conditions.push(`bu IN (?)`);
+            params.push(buArray);
         }
     }
-
-    // 🔥 NEW: WBS Description Filter
-    if (wbs_description && wbs_description !== 'All') {
-        const descArr = wbs_description.split(',').map(w => w.trim().toLowerCase()).filter(Boolean);
-        if (descArr.length > 0 && !descArr.includes('all')) {
-            conditions.push(`TRIM(LOWER(wbs_description)) IN (?)`);
-            params.push(descArr);
-        }
-    }
-
     if (years) {
-        const yearArray = years.split(',').map(y => y.trim()).filter(Boolean);
-        if (yearArray.length > 0) {
-            conditions.push(`(${yearArray.map(() => "period LIKE ?").join(' OR ')})`);
-            params.push(...yearArray.map(y => `${y}-%`));
-        }
+        const yearArray = years.split(',');
+        conditions.push(`(${yearArray.map(() => "period LIKE ?").join(' OR ')})`);
+        params.push(...yearArray.map(y => `${y}-%`));
     }
-    
     if (periods) {
-        const periodArray = periods.split(',').map(p => p.trim().toLowerCase()).filter(Boolean);
-        if (periodArray.length > 0) { conditions.push(`TRIM(LOWER(period)) IN (?)`); params.push(periodArray); }
+        const periodArray = periods.split(',');
+        conditions.push(`period IN (?)`);
+        params.push(periodArray);
     }
-    
     if (customers) {
-        const customerArray = customers.split(',').map(c => c.trim().toLowerCase()).filter(Boolean);
-        if (customerArray.length > 0) { conditions.push(`TRIM(LOWER(customer)) IN (?)`); params.push(customerArray); }
+        const customerArray = customers.split(',');
+        conditions.push(`customer IN (?)`);
+        params.push(customerArray);
     }
-    
     if (loa_names) {
-        const loaArray = loa_names.split(',').map(l => l.trim().toLowerCase()).filter(Boolean);
-        if (loaArray.length > 0) { conditions.push(`TRIM(LOWER(loa_name)) IN (?)`); params.push(loaArray); }
+        const loaArray = loa_names.split(',');
+        conditions.push(`loa_name IN (?)`);
+        params.push(loaArray);
     }
-    
     if (active_inactive) {
-        conditions.push(`TRIM(LOWER(active_inactive)) = ?`);
-        params.push(active_inactive.trim().toLowerCase());
+        conditions.push(`active_inactive = ?`);
+        params.push(active_inactive);
     }
 };
 
@@ -224,26 +199,26 @@ const calculateSM = (rev, cost) => {
 
 // 🔥 DYNAMIC ASBL COLUMN CALCULATOR BY WBS TYPE
 const getDynamicSumColumns = (wbsTypes, prefix) => {
-    if (!wbsTypes || wbsTypes.length === 0 || wbsTypes.includes('All') || wbsTypes.includes('all')) return "0";
+    if (!wbsTypes || wbsTypes.length === 0 || wbsTypes.includes('All')) return "0";
     let cols = [];
-    if (wbsTypes.some(v => String(v).toLowerCase().includes('project'))) cols.push(`COALESCE(${prefix}_project, 0)`);
-    if (wbsTypes.some(v => String(v).toLowerCase().includes('amc'))) cols.push(`COALESCE(${prefix}_amc, 0)`);
-    if (wbsTypes.some(v => String(v).toLowerCase().includes('warranty'))) cols.push(`COALESCE(${prefix}_warranty, 0)`);
+    if (wbsTypes.some(v => v.toLowerCase().includes('project'))) cols.push(`COALESCE(${prefix}_project, 0)`);
+    if (wbsTypes.some(v => v.toLowerCase().includes('amc'))) cols.push(`COALESCE(${prefix}_amc, 0)`);
+    if (wbsTypes.some(v => v.toLowerCase().includes('warranty'))) cols.push(`COALESCE(${prefix}_warranty, 0)`);
     return cols.length > 0 ? `(${cols.join(' + ')})` : "0";
 };
 
-// 🔥 FIX: strictly using base columns without NULLIF fallbacks
+// 🔥 SMART DYNAMIC NON-COMMITTED COLUMN CALCULATOR (Fallback Enabled)
 const getDynamicNCColumns = (wbsTypes) => {
-    if (!wbsTypes || wbsTypes.length === 0 || wbsTypes.includes('All') || wbsTypes.includes('all')) return "0";
+    if (!wbsTypes || wbsTypes.length === 0 || wbsTypes.includes('All')) return "0";
     let cols = [];
-    if (wbsTypes.some(v => String(v).toLowerCase().includes('project'))) {
-        cols.push(`COALESCE(non_committed_project, 0)`);
+    if (wbsTypes.some(v => v.toLowerCase().includes('project'))) {
+        cols.push(`COALESCE(NULLIF(non_committed_editable_project, 0), COALESCE(NULLIF(non_committed_project, 0), 0))`);
     }
-    if (wbsTypes.some(v => String(v).toLowerCase().includes('amc'))) {
-        cols.push(`COALESCE(non_committed_amc, 0)`);
+    if (wbsTypes.some(v => v.toLowerCase().includes('amc'))) {
+        cols.push(`COALESCE(NULLIF(non_committed_editable_amc, 0), COALESCE(NULLIF(non_committed_amc, 0), 0))`);
     }
-    if (wbsTypes.some(v => String(v).toLowerCase().includes('warranty'))) {
-        cols.push(`COALESCE(non_committed_warranty, 0)`);
+    if (wbsTypes.some(v => v.toLowerCase().includes('warranty'))) {
+        cols.push(`COALESCE(NULLIF(non_committed_editable_warranty, 0), COALESCE(NULLIF(non_committed_warranty, 0), 0))`);
     }
     return cols.length > 0 ? `(${cols.join(' + ')})` : "0";
 };
@@ -315,9 +290,6 @@ exports.getWbsSummary = async (req, res) => {
         });
 
         const catTypeVal = req.query.category_type || req.query['category_type[]'];
-        if (catTypeVal && !catTypeVal.includes('All') && catTypeVal !== 'All') {
-            hasActiveFilters = true;
-        }
         applyCategoryTypeFilter(catTypeVal, conditions);
 
         const isDefaultView = !hasActiveFilters && (startIdx === 0);
@@ -975,10 +947,7 @@ exports.getPendingUsers = async (req, res) => {
 };
 
 // ===========================================
-// Export Summary View Data to Excel (100% Dynamic & Postgres-Safe)
-// ===========================================
-// ===========================================
-// Export Summary View Data to Excel (100% DYNAMIC ASBL & NON-COMMITTED)
+// Export Summary View Data to Excel (100% Sync with UI Table)
 // ===========================================
 exports.exportToExcel = async (req, res) => {
     try {
@@ -987,28 +956,21 @@ exports.exportToExcel = async (req, res) => {
         const wTArr = getValArray(req.query.wbs_type, req.query, 'wbs_type');
         const wEArr = getValArray(req.query.wbs, req.query, 'wbs');
 
-        // 🔥 DYNAMIC ASBL & NON-COMMITTED COLUMN CALCULATORS (Screen Exact Match)
+        // 🔥 STRICT DYNAMIC ASBL & NON-COMMITTED (Exact match with UI logic)
         const asblCols = getDynamicSumColumns(wTArr, 'asbl');
-        const asblValExpression = asblCols === "0" ? "0" : `COALESCE(NULLIF(${asblCols}, 0), asbl, 0)`;
+        const asblValExpression = asblCols !== "0" ? asblCols : "0";
 
-        // 🟢 FIX: Use getDynamicNCColumns(wTArr) to fetch non_committed_project fallback values!
         const ncCols = getDynamicNCColumns(wTArr);
-        const ncValExpression = ncCols === "0" ? "0" : `COALESCE(NULLIF(${ncCols}, 0), non_committed_editable, non_committed, 0)`;
+        const ncValExpression = ncCols !== "0" ? ncCols : "0";
 
         let conditions = ["(categories IS NULL OR categories NOT IN ('Not to considered'))", "(cost_revenue IS NULL OR cost_revenue <> 'NTC')"];
         let baseParams = [];
         applyRLS(type, allowedCustomers, conditions, baseParams);
 
-        // Filter Mapping for Active Screen Filters
         const filterColumnMap = {
-            'bu': 'bu',
-            'customer': 'customer',
-            'loa_id': 'loa_id',
-            'loa_name': 'loa_name',
-            'wbs_type': 'wbs_type',
-            'wbs_description': 'wbs_description',
-            'period': 'period',
-            'active_inactive': 'active_inactive'
+            'bu': 'bu', 'customer': 'customer', 'loa_id': 'loa_id', 'loa_name': 'loa_name',
+            'wbs_type': 'wbs_type', 'wbs': 'wbs_element_single', 'wbs_description': 'wbs_description',
+            'period': 'period', 'active_inactive': 'active_inactive'
         };
 
         let filterParams = [];
@@ -1017,8 +979,8 @@ exports.exportToExcel = async (req, res) => {
             if (vals && vals.length > 0 && !vals.includes('All')) {
                 const dbCol = filterColumnMap[key];
                 if (key === 'active_inactive') {
-                    const hasActive = vals.some(v => v.toLowerCase() === 'active');
-                    const hasInactive = vals.some(v => v.toLowerCase() === 'inactive');
+                    const hasActive = vals.some(v => String(v).toLowerCase() === 'active');
+                    const hasInactive = vals.some(v => String(v).toLowerCase() === 'inactive');
                     if (hasActive && hasInactive) return;
                     if (hasActive) conditions.push(`(TRIM(LOWER("${dbCol}")) = 'active' OR "${dbCol}" IS NULL OR TRIM("${dbCol}") = '')`);
                     else if (hasInactive) conditions.push(`TRIM(LOWER("${dbCol}")) = 'inactive'`);
@@ -1030,74 +992,84 @@ exports.exportToExcel = async (req, res) => {
             }
         });
 
-        if (wEArr && !wEArr.includes('All')) {
-            const lowerWbs = wEArr.map(v => String(v).trim().toLowerCase());
-            conditions.push(`TRIM(LOWER(wbs_element_single)) IN (?)`);
-            filterParams.push(lowerWbs);
-        }
-
         const catTypeVal = req.query.category_type || req.query['category_type[]'];
-        applyCategoryTypeFilter(catTypeVal, conditions);
+        if (catTypeVal && !catTypeVal.includes('All') && catTypeVal !== 'All') {
+            applyCategoryTypeFilter(catTypeVal, conditions);
+        }
 
         const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
         const combinedParams = [...baseParams, ...filterParams];
 
         let exportQuery = '';
-        if (collapseView === 'true') {
-            // Cost Level View Export
+
+        // 🟢 If user is exporting COLLAPSED View
+        if (String(collapseView) === 'true') {
+            let asblSumLogic = "MAX(asbl)"; 
+            if (wTArr && wTArr.length > 0 && !wTArr.includes('All') && !wTArr.includes('all')) {
+                let parts = [];
+                if (wTArr.some(v => String(v).toLowerCase().includes('project'))) parts.push("MAX(asbl_project)");
+                if (wTArr.some(v => String(v).toLowerCase().includes('amc'))) parts.push("MAX(asbl_amc)");
+                if (parts.length > 0) asblSumLogic = `(${parts.join(' + ')})`;
+            }
+
+            let ncSumLogic = "SUM(non_committed)";
+            if (wTArr && wTArr.length > 0 && !wTArr.includes('All') && !wTArr.includes('all')) {
+                let parts = [];
+                if (wTArr.some(v => String(v).toLowerCase().includes('project'))) parts.push("SUM(COALESCE(non_committed_project, 0))");
+                if (wTArr.some(v => String(v).toLowerCase().includes('amc'))) parts.push("SUM(COALESCE(non_committed_amc, 0))");
+                if (wTArr.some(v => String(v).toLowerCase().includes('warranty'))) parts.push("SUM(COALESCE(non_committed_warranty, 0))");
+                if (parts.length > 0) ncSumLogic = `(${parts.join(' + ')})`;
+            }
+
             exportQuery = `
                 SELECT 
                     bu, customer, loa_name, loa_id, cost_revenue,
-                    ROUND(SUM(type_asbl), 2) AS asbl, 
+                    ROUND(${asblSumLogic}, 2) AS asbl, 
                     ROUND(MAX(asbl_loa), 2) AS asbl_loa,
-                    ROUND(SUM(total_ptd), 2) AS ptd,
-                    ROUND(SUM(total_oc), 2) AS open_commitment,
-                    ROUND(MAX(total_nc), 2) AS non_committed,
-                    ROUND(SUM(total_ptd) + SUM(total_oc) + MAX(total_nc), 2) AS eac,
-                    ROUND(SUM(type_asbl) - (SUM(total_ptd) + SUM(total_oc) + MAX(total_nc)), 2) AS eac_vs_asbl
-                FROM (
-                    SELECT 
-                        bu, customer, loa_name, loa_id, cost_revenue, categories, wbs_type,
-                        MAX(${asblValExpression}) as type_asbl,
-                        SUM(ptd) as total_ptd,
-                        SUM(open_commitment_KEUR) as total_oc,
-                        MAX(${ncValExpression}) as total_nc,
-                        MAX(asbl_loa) as asbl_loa
-                    FROM final_dashboard_table
-                    ${whereClause}
-                    GROUP BY bu, customer, loa_name, loa_id, cost_revenue, categories, wbs_type
-                ) as t
+                    ROUND(SUM(ptd), 2) AS ptd,
+                    ROUND(SUM(open_commitment_KEUR), 2) AS open_commitment,
+                    ROUND(${ncSumLogic}, 2) AS non_committed,
+                    ROUND(SUM(ptd) + SUM(open_commitment_KEUR) + ${ncSumLogic}, 2) as eac,
+                    ROUND(${asblSumLogic} - (SUM(ptd) + SUM(open_commitment_KEUR) + ${ncSumLogic}), 2) as eac_vs_asbl
+                FROM final_dashboard_table
+                ${whereClause}
                 GROUP BY bu, customer, loa_name, loa_id, cost_revenue
                 ORDER BY loa_name ASC
             `;
-        } else {
-            // Cost Element Level View Export
+        } 
+        // 🟢 If user is exporting NORMAL View (Identical to getWbsSummary)
+        else {
             exportQuery = `
                 SELECT 
-                    bu, customer, loa_name, loa_id, cost_revenue, categories,
-                    ROUND(MAX(type_asbl), 2) AS asbl, 
-                    ROUND(MAX(asbl_loa), 2) AS asbl_loa,
-                    ROUND(SUM(total_ptd), 2) AS ptd,
-                    ROUND(SUM(total_oc), 2) AS open_commitment,
-                    ROUND(MAX(total_nc), 2) AS non_committed,
-                    ROUND(SUM(total_ptd) + SUM(total_oc) + MAX(total_nc), 2) AS eac,
-                    ROUND(MAX(type_asbl) - (SUM(total_ptd) + SUM(total_oc) + MAX(total_nc)), 2) AS eac_vs_asbl
+                    t.bu, t.customer, t.loa_id, t.loa_name, t.cost_revenue, t.categories, 
+                    ROUND(MAX(COALESCE(static.asbl_val, 0)), 2) as asbl,
+                    ROUND(MAX(COALESCE(static.asbl_loa_val, 0)), 2) as asbl_loa,
+                    ROUND(SUM(t.ptd_val), 2) as ptd, 
+                    ROUND(SUM(t.oc_val), 2) as open_commitment, 
+                    ROUND(MAX(COALESCE(static.nc_val, 0)), 2) as non_committed, 
+                    ROUND(SUM(t.ptd_val) + SUM(t.oc_val) + MAX(COALESCE(static.nc_val, 0)), 2) as eac,
+                    ROUND(MAX(COALESCE(static.asbl_val, 0)) - (SUM(t.ptd_val) + SUM(t.oc_val) + MAX(COALESCE(static.nc_val, 0))), 2) as eac_vs_asbl
                 FROM (
                     SELECT 
-                        bu, customer, loa_name, loa_id, cost_revenue, categories, wbs_type,
-                        MAX(${asblValExpression}) as type_asbl,
-                        SUM(ptd) as total_ptd,
-                        SUM(open_commitment_KEUR) as total_oc,
-                        MAX(${ncValExpression}) as total_nc,
-                        MAX(asbl_loa) as asbl_loa
+                        bu, customer, loa_id, loa_name, cost_revenue, categories, "Merged_wbs_categories",
+                        ptd as ptd_val, open_commitment_KEUR as oc_val
                     FROM final_dashboard_table
                     ${whereClause}
-                    GROUP BY bu, customer, loa_name, loa_id, cost_revenue, categories, wbs_type
                 ) as t
-                GROUP BY bu, customer, loa_name, loa_id, cost_revenue, categories
-                HAVING 1=1
-                ${showAll === 'false' ? 'AND (ABS(SUM(total_ptd)) > 0.01 OR ABS(SUM(total_oc)) > 0.01 OR ABS(MAX(type_asbl)) > 0.01 OR ABS(MAX(total_nc)) > 0.01)' : ''}
-                ORDER BY loa_name ASC, categories ASC
+                LEFT JOIN (
+                    SELECT 
+                        "Merged_wbs_categories", 
+                        MAX(${asblValExpression}) as asbl_val, 
+                        MAX(asbl_loa) as asbl_loa_val,
+                        MAX(${ncValExpression}) as nc_val      
+                    FROM final_dashboard_table
+                    GROUP BY "Merged_wbs_categories"
+                ) as static ON t."Merged_wbs_categories" = static."Merged_wbs_categories"
+                
+                GROUP BY t.bu, t.customer, t.loa_id, t.loa_name, t.cost_revenue, t.categories, t."Merged_wbs_categories"
+                HAVING 1=1 
+                ${String(showAll) === 'false' ? 'AND (ABS(SUM(t.ptd_val)) > 0.01 OR ABS(SUM(t.oc_val)) > 0.01 OR ABS(MAX(COALESCE(static.asbl_val, 0))) > 0.01 OR ABS(MAX(COALESCE(static.nc_val, 0))) > 0.01)' : ''}
+                ORDER BY loa_name ASC, cost_revenue ASC
             `;
         }
 
@@ -1116,7 +1088,7 @@ exports.exportToExcel = async (req, res) => {
             { header: 'LOA ID', key: 'loa_id', width: 15 },
             { header: 'Cost/Revenue', key: 'cost_revenue', width: 15 }
         ];
-        if (collapseView !== 'true') cols.push({ header: 'Category', key: 'categories', width: 25 });
+        if (String(collapseView) !== 'true') cols.push({ header: 'Category', key: 'categories', width: 25 });
         cols.push(
             { header: 'ASBL', key: 'asbl', width: 15 },
             { header: 'ASBL LOA', key: 'asbl_loa', width: 15 },
@@ -1128,6 +1100,7 @@ exports.exportToExcel = async (req, res) => {
         );
         worksheet.columns = cols;
 
+        // Ensure proper numeric formatting in Excel
         rows.forEach(row => {
             const cleanRow = { ...row };
             ['asbl', 'asbl_loa', 'ptd', 'open_commitment', 'non_committed', 'eac', 'eac_vs_asbl'].forEach(k => {
@@ -1249,64 +1222,65 @@ exports.getDashboardFilters = async (req, res) => {
         const { type, allowedCustomers } = req.query;
 
         const buildConditions = (excludeKey) => {
-            const { years, periods, customers, active_inactive, loa_names, bu, wbs_type, category_type, wbs, wbs_description } = req.query;
+            const { years, periods, customers, active_inactive, loa_names, bu, wbs_type, category_type } = req.query;
             let conditions = ["customer IS NOT NULL", "loa_name IS NOT NULL"];
             let params = [];
 
             applyRLS(type, allowedCustomers, conditions, params);
 
             if (!category_type) {
-                conditions.push(`TRIM(LOWER(categories)) <> 'local materials'`);
+                conditions.push(`categories <> 'Local Materials'`);
             } else {
-                let catArr = Array.isArray(category_type) ? category_type : category_type.split(',').map(v => v.trim().toLowerCase());
-                const hasAll = catArr.includes('all');
-                const hasLM = catArr.includes('local materials');
-                if (hasAll && !hasLM) conditions.push(`TRIM(LOWER(categories)) <> 'local materials'`);
-                else if (!hasAll && hasLM) conditions.push(`TRIM(LOWER(categories)) = 'local materials'`);
-                else if (!hasAll && !hasLM) conditions.push(`TRIM(LOWER(categories)) <> 'local materials'`);
+                let catArr = Array.isArray(category_type) ? category_type : category_type.split(',').map(v => v.trim());
+                const hasAll = catArr.includes('All');
+                const hasLM = catArr.includes('Local Materials');
+                if (hasAll && !hasLM) conditions.push(`categories <> 'Local Materials'`);
+                else if (!hasAll && hasLM) conditions.push(`categories = 'Local Materials'`);
+                else if (!hasAll && !hasLM) conditions.push(`categories <> 'Local Materials'`);
             }
 
             if (bu && excludeKey !== 'bus') {
-                const buArray = bu.split(',').map(b => b.trim().toLowerCase()).filter(Boolean);
-                if (buArray.length > 0) { conditions.push(`TRIM(LOWER(bu)) IN (?)`); params.push(buArray); }
+                const buArray = bu.split(',').filter(Boolean);
+                if (buArray.length > 0) {
+                    conditions.push(`bu IN (?)`);
+                    params.push(buArray);
+                }
             }
             if (wbs_type && wbs_type !== 'All' && excludeKey !== 'wbs_type') {
-                const wTArray = wbs_type.split(',').map(w => w.trim().toLowerCase()).filter(Boolean);
-                if (wTArray.length > 0) { conditions.push(`TRIM(LOWER(wbs_type)) IN (?)`); params.push(wTArray); }
+                conditions.push(`wbs_type = ?`);
+                params.push(wbs_type);
             }
-            
-            // 🔥 Added WBS & WBS Description
-            if (wbs && wbs !== 'All' && excludeKey !== 'wbs') {
-                const wbsArray = wbs.split(',').map(w => w.trim().toLowerCase()).filter(Boolean);
-                if (wbsArray.length > 0) { conditions.push(`TRIM(LOWER(wbs_element_single)) IN (?)`); params.push(wbsArray); }
-            }
-            if (wbs_description && wbs_description !== 'All' && excludeKey !== 'wbs_description') {
-                const descArray = wbs_description.split(',').map(w => w.trim().toLowerCase()).filter(Boolean);
-                if (descArray.length > 0) { conditions.push(`TRIM(LOWER(wbs_description)) IN (?)`); params.push(descArray); }
-            }
-
             if (years && excludeKey !== 'years') {
-                const yearArray = years.split(',').map(y => y.trim()).filter(Boolean);
+                const yearArray = years.split(',').filter(Boolean);
                 if (yearArray.length > 0) {
                     conditions.push(`(${yearArray.map(() => "period LIKE ?").join(' OR ')})`);
                     params.push(...yearArray.map(y => `${y}-%`));
                 }
             }
             if (periods && excludeKey !== 'periods') {
-                const periodArray = periods.split(',').map(p => p.trim().toLowerCase()).filter(Boolean);
-                if (periodArray.length > 0) { conditions.push(`TRIM(LOWER(period)) IN (?)`); params.push(periodArray); }
+                const periodArray = periods.split(',').filter(Boolean);
+                if (periodArray.length > 0) {
+                    conditions.push(`period IN (?)`);
+                    params.push(periodArray);
+                }
             }
             if (customers && excludeKey !== 'customers') {
-                const customerArray = customers.split(',').map(c => c.trim().toLowerCase()).filter(Boolean);
-                if (customerArray.length > 0) { conditions.push(`TRIM(LOWER(customer)) IN (?)`); params.push(customerArray); }
+                const customerArray = customers.split(',').filter(Boolean);
+                if (customerArray.length > 0) {
+                    conditions.push(`customer IN (?)`);
+                    params.push(customerArray);
+                }
             }
             if (loa_names && excludeKey !== 'loa_names') {
-                const loaArray = loa_names.split(',').map(l => l.trim().toLowerCase()).filter(Boolean);
-                if (loaArray.length > 0) { conditions.push(`TRIM(LOWER(loa_name)) IN (?)`); params.push(loaArray); }
+                const loaArray = loa_names.split(',').filter(Boolean);
+                if (loaArray.length > 0) {
+                    conditions.push(`loa_name IN (?)`);
+                    params.push(loaArray);
+                }
             }
             if (active_inactive) {
-                conditions.push(`TRIM(LOWER(active_inactive)) = ?`);
-                params.push(active_inactive.trim().toLowerCase());
+                conditions.push(`active_inactive = ?`);
+                params.push(active_inactive);
             }
             return { whereSql: conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '', params };
         };
@@ -1314,16 +1288,8 @@ exports.getDashboardFilters = async (req, res) => {
         const buQ = buildConditions('bus');
         const [buRows] = await db.query(`SELECT DISTINCT bu FROM final_dashboard_table ${buQ.whereSql} ORDER BY bu ASC`, buQ.params);
 
-        const wbsTypeQ = buildConditions('wbs_type');
-        const [wbsTypeRows] = await db.query(`SELECT DISTINCT wbs_type FROM final_dashboard_table ${wbsTypeQ.whereSql} AND wbs_type IS NOT NULL ORDER BY wbs_type ASC`, wbsTypeQ.params);
-
-        // 🔥 Added distinct WBS fetch
-        const wbsQ = buildConditions('wbs');
-        const [wbsRows] = await db.query(`SELECT DISTINCT wbs_element_single FROM final_dashboard_table ${wbsQ.whereSql} AND wbs_element_single IS NOT NULL AND wbs_element_single != '' ORDER BY wbs_element_single ASC`, wbsQ.params);
-
-        // 🔥 Added distinct WBS Description fetch
-        const wbsDescQ = buildConditions('wbs_description');
-        const [wbsDescRows] = await db.query(`SELECT DISTINCT wbs_description FROM final_dashboard_table ${wbsDescQ.whereSql} AND wbs_description IS NOT NULL AND wbs_description != '' ORDER BY wbs_description ASC`, wbsDescQ.params);
+        const wbsQ = buildConditions('wbs_type');
+        const [wbsRows] = await db.query(`SELECT DISTINCT wbs_type FROM final_dashboard_table ${wbsQ.whereSql} AND wbs_type IS NOT NULL ORDER BY wbs_type ASC`, wbsQ.params);
 
         const custQ = buildConditions('customers');
         const [customerRows] = await db.query(`SELECT DISTINCT customer FROM final_dashboard_table ${custQ.whereSql} ORDER BY customer ASC`, custQ.params);
@@ -1339,9 +1305,7 @@ exports.getDashboardFilters = async (req, res) => {
         res.status(200).json({
             category_types: ['All', 'Local Materials'],
             bus: buRows.map(r => r.bu),
-            wbs_types: wbsTypeRows.map(r => r.wbs_type), 
-            wbs: wbsRows.map(r => r.wbs_element_single), // 🔥
-            wbs_descriptions: wbsDescRows.map(r => r.wbs_description), // 🔥
+            wbs_types: wbsRows.map(r => r.wbs_type), 
             years: yearsList,
             periods: periodRows.map(r => r.period),
             customers: customerRows.map(r => r.customer),
@@ -1353,68 +1317,63 @@ exports.getDashboardFilters = async (req, res) => {
     }
 };
 
-// 🔥 DASHBOARD ANALYTICS QUERY (Fixed Ambiguity)
-// 🔥 DASHBOARD ANALYTICS QUERY (With Dynamic Non-Committed & Postgres Fix)
-const getDashboardAnalyticsSQL = (groupByCol, asblCols, ncCols) => {
+// 🔥 DYNAMIC ASBL DASHBOARD ANALYTICS QUERY
+const getDashboardAnalyticsSQL = (groupByCol, asblCols) => {
     const hasAsbl = asblCols !== "0";
-    const hasNc = ncCols !== "0"; // 🔥 Check if NC filter is applied
-    
-    // Strict column mapping without fallback. If not active, pass "0" directly to DB.
-    const asblValExpression = hasAsbl ? asblCols : "0";
-    const ncValExpression = hasNc ? ncCols : "0";
-
-    const asblSelect = hasAsbl ? 'ROUND(SUM(cat_asbl), 2)' : '0.00';
-    const ncSelect = hasNc ? 'ROUND(SUM(cat_nc), 2)' : '0.00';
-    const varSelect = hasAsbl ? 'ROUND(SUM(cat_asbl) - SUM(cat_ptd + cat_oc + cat_nc), 2)' : '0.00';
-
-    const prefixCol = `t.${groupByCol.trim()} AS ${groupByCol.trim()}`;
-    const groupByInner = `t.${groupByCol.trim()}`;
+    const asblValExpression = asblCols === "0" ? "0" : `COALESCE(NULLIF(${asblCols}, 0), asbl, 0)`;
 
     return `
         SELECT 
             ${groupByCol},
-            CAST(${asblSelect} AS NUMERIC(15,2)) as asbl,
+            ${hasAsbl ? 'ROUND(SUM(cat_asbl), 2)' : "'0.00'"} as asbl,
             ROUND(SUM(cat_ptd), 2) as ptd,
-            ROUND(SUM(cat_ptd + cat_oc + cat_nc), 2) as eac,
             ROUND(SUM(cat_oc), 2) as open_commitment,
-            CAST(${ncSelect} AS NUMERIC(15,2)) as non_committed,
-            CAST(${varSelect} AS NUMERIC(15,2)) as eac_vs_asbl
+            ROUND(SUM(cat_nc), 2) as non_committed,
+            ROUND(SUM(cat_ptd + cat_oc + cat_nc), 2) as eac,
+            ROUND(${hasAsbl ? 'SUM(cat_asbl)' : '0.00'} - SUM(cat_ptd + cat_oc + cat_nc), 2) as eac_vs_asbl
         FROM (
+            -- 🟢 STEP 1: CATEGORY LEVEL ROLLUP (EXACT MATCHING SUMMARY PAGE MATH!)
             SELECT 
-                ${prefixCol},
+                t.${groupByCol},
+                t.loa_id,
                 t."Merged_wbs_categories",
                 t.wbs_type,
                 MAX(COALESCE(static.asbl_val, 0)) as cat_asbl,
-                SUM(t.ptd) as cat_ptd,
-                SUM(t.open_commitment_KEUR) as cat_oc,
+                SUM(t.ptd_val) as cat_ptd,
+                SUM(t.oc_val) as cat_oc,
                 MAX(COALESCE(static.nc_val, 0)) as cat_nc
-            FROM final_dashboard_table t
+            FROM (
+                SELECT 
+                    ${groupByCol}, loa_id, categories, "Merged_wbs_categories", wbs_type,
+                    ptd as ptd_val, open_commitment_KEUR as oc_val
+                FROM final_dashboard_table
+                {{WHERE_CLAUSE}}
+            ) as t
             LEFT JOIN (
                 SELECT 
                     "Merged_wbs_categories", 
                     MAX(${asblValExpression}) as asbl_val, 
-                    MAX(${ncValExpression}) as nc_val
+                    MAX(non_committed_editable) as nc_val
                 FROM final_dashboard_table
                 GROUP BY "Merged_wbs_categories"
             ) as static ON t."Merged_wbs_categories" = static."Merged_wbs_categories"
-            {{WHERE_CLAUSE}}
-            GROUP BY ${groupByInner}, t."Merged_wbs_categories", t.wbs_type
+            GROUP BY t.${groupByCol}, t.loa_id, t."Merged_wbs_categories", t.wbs_type
         ) as category_rollup
+        WHERE (? = 'All' OR ? = '' OR TRIM(LOWER(wbs_type)) = TRIM(LOWER(?)))
         GROUP BY ${groupByCol}
         ORDER BY ${groupByCol} ASC
     `;
 };
 
 // 1. Business Unit Analytics (Updated with Dynamic ASBL)
-// 1. BU Analytics (Updated with Dynamic ASBL & Non-Committed)
 exports.getBuAnalytics = async (req, res) => {
     try {
         const { type, allowedCustomers } = req.query;
+        let wT = req.query.wbs_type || 'All';
         const wTArr = getValArray(req.query.wbs_type, req.query, 'wbs_type');
         
-        // 🔥 Get Both Dynamic Columns
+        // 🔥 Dynamic ASBL Column Selection (Picks asbl_project, asbl_amc or 0)
         const asblCols = getDynamicSumColumns(wTArr, 'asbl');
-        const ncCols = getDynamicNCColumns(wTArr);
 
         let conditions = ["categories NOT IN ('Not to considered')", "cost_revenue = 'Cost'"];
         let baseParams = [];
@@ -1422,24 +1381,23 @@ exports.getBuAnalytics = async (req, res) => {
         applyDashboardFilters(req.query, conditions, baseParams);
         
         const whereSql = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
-        const sql = getDashboardAnalyticsSQL('bu', asblCols, ncCols).replace('{{WHERE_CLAUSE}}', whereSql);
+        const sql = getDashboardAnalyticsSQL('bu', asblCols).replace('{{WHERE_CLAUSE}}', whereSql);
 
-        // 🔥 FIX: Clean Parameter execution for Postgres (Removed wT, wT, wT)
-        const [rows] = await db.query(sql, baseParams);
+        const [rows] = await db.query(sql, [...baseParams, wT, wT, wT]);
         res.status(200).json(rows);
     } catch (error) { res.status(500).json({ error: error.message }); }
 };
 
-// 2. LOA Name Analytics (Updated with Dynamic ASBL & Non-Committed)
+// 2. LOA Name Analytics (Updated with Dynamic ASBL)
 exports.getLoaAnalytics = async (req, res) => {
     try {
         const { type, allowedCustomers, showAll } = req.query;
+        let wT = req.query.wbs_type || 'All';
         const wTArr = getValArray(req.query.wbs_type, req.query, 'wbs_type');
         
-        // 🔥 Get Both Dynamic Columns
+        // 🔥 Dynamic ASBL Column Selection
         const asblCols = getDynamicSumColumns(wTArr, 'asbl');
-        const ncCols = getDynamicNCColumns(wTArr);
-        const limitSql = String(showAll) === 'true' ? '' : 'LIMIT 10';
+        const limitSql = showAll === 'true' ? '' : 'LIMIT 10';
 
         let conditions = ["categories NOT IN ('Not to considered')", "cost_revenue = 'Cost'"];
         let baseParams = [];
@@ -1447,12 +1405,11 @@ exports.getLoaAnalytics = async (req, res) => {
         applyDashboardFilters(req.query, conditions, baseParams);
         
         const whereSql = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
-        const rawSql = getDashboardAnalyticsSQL('loa_name', asblCols, ncCols).replace('{{WHERE_CLAUSE}}', whereSql);
+        const rawSql = getDashboardAnalyticsSQL('loa_name', asblCols).replace('{{WHERE_CLAUSE}}', whereSql);
         
         const sql = `SELECT * FROM (${rawSql}) final_t ORDER BY asbl DESC ${limitSql}`;
 
-        // 🔥 FIX: Clean Parameter execution for Postgres
-        const [rows] = await db.query(sql, baseParams);
+        const [rows] = await db.query(sql, [...baseParams, wT, wT, wT]);
         res.status(200).json(rows);
     } catch (error) { res.status(500).json({ error: error.message }); }
 };
@@ -1499,59 +1456,52 @@ exports.getTrendLoas = async (req, res) => {
     } catch (error) { res.status(500).json({ error: error.message }); }
 };
 
-
-
 // 🔥 DYNAMIC ASBL DASHBOARD TABLE QUERY
-// 🔥 DASHBOARD TABLE QUERY (Fixed Ambiguity)
-const getDashboardTableSQL = (groupByCols, asblCols, ncCols) => {
+const getDashboardTableSQL = (groupByCols, asblCols) => {
     const hasAsbl = asblCols !== "0";
-    const hasNc = ncCols !== "0"; // 🔥 Check if NC filter is applied
-    
-    // Strict column mapping without fallback. If not active, pass "0" directly to DB.
-    const asblValExpression = hasAsbl ? asblCols : "0";
-    const ncValExpression = hasNc ? ncCols : "0";
-
-    const asblSelect = hasAsbl ? 'ROUND(SUM(cat_asbl), 2)' : '0.00';
-    const asblLoaSelect = hasAsbl ? 'ROUND(SUM(cat_asbl_loa), 2)' : '0.00';
-    const ncSelect = hasNc ? 'ROUND(SUM(cat_nc), 2)' : '0.00';
-    const varSelect = hasAsbl ? 'ROUND(SUM(cat_asbl) - SUM(cat_ptd + cat_oc + cat_nc), 2)' : '0.00';
-
-    const prefixCols = groupByCols.split(',').map(c => `t.${c.trim()} AS ${c.trim()}`).join(', ');
-    const groupByInner = groupByCols.split(',').map(c => `t.${c.trim()}`).join(', ');
+    const asblValExpression = asblCols === "0" ? "0" : `COALESCE(NULLIF(${asblCols}, 0), asbl, 0)`;
 
     return `
         SELECT 
             ${groupByCols},
-            CAST(${asblSelect} AS NUMERIC(15,2)) as asbl,
-            CAST(${asblLoaSelect} AS NUMERIC(15,2)) as asbl_loa,
+            ${hasAsbl ? 'ROUND(SUM(cat_asbl), 2)' : "'0.00'"} as asbl,
+            ROUND(SUM(cat_asbl_loa), 2) as asbl_loa,
             ROUND(SUM(cat_ptd), 2) as ptd,
             ROUND(SUM(cat_oc), 2) as open_commitment,
-            CAST(${ncSelect} AS NUMERIC(15,2)) as non_committed,
+            ROUND(SUM(cat_nc), 2) as non_committed,
             ROUND(SUM(cat_ptd + cat_oc + cat_nc), 2) as eac,
-            CAST(${varSelect} AS NUMERIC(15,2)) as eac_vs_asbl
+            ROUND(${hasAsbl ? 'SUM(cat_asbl)' : '0.00'} - SUM(cat_ptd + cat_oc + cat_nc), 2) as eac_vs_asbl
         FROM (
+            -- 🟢 STEP 1: CATEGORY LEVEL ROLLUP (EXACT MATCHING SUMMARY PAGE MATH!)
             SELECT 
-                ${prefixCols},
+                ${groupByCols},
+                t.loa_id,
                 t."Merged_wbs_categories",
                 t.wbs_type,
                 MAX(COALESCE(static.asbl_val, 0)) as cat_asbl,
                 MAX(COALESCE(static.asbl_loa_val, 0)) as cat_asbl_loa,
-                SUM(t.ptd) as cat_ptd,
-                SUM(t.open_commitment_KEUR) as cat_oc,
+                SUM(t.ptd_val) as cat_ptd,
+                SUM(t.oc_val) as cat_oc,
                 MAX(COALESCE(static.nc_val, 0)) as cat_nc
-            FROM final_dashboard_table t
+            FROM (
+                SELECT 
+                    ${groupByCols}, loa_id, categories, "Merged_wbs_categories", wbs_type,
+                    ptd as ptd_val, open_commitment_KEUR as oc_val
+                FROM final_dashboard_table
+                {{WHERE_CLAUSE}}
+            ) as t
             LEFT JOIN (
                 SELECT 
                     "Merged_wbs_categories", 
                     MAX(${asblValExpression}) as asbl_val, 
                     MAX(asbl_loa) as asbl_loa_val,
-                    MAX(${ncValExpression}) as nc_val
+                    MAX(non_committed_editable) as nc_val
                 FROM final_dashboard_table
                 GROUP BY "Merged_wbs_categories"
             ) as static ON t."Merged_wbs_categories" = static."Merged_wbs_categories"
-            {{WHERE_CLAUSE}}
-            GROUP BY ${groupByInner}, t."Merged_wbs_categories", t.wbs_type
+            GROUP BY ${groupByCols}, t.loa_id, t."Merged_wbs_categories", t.wbs_type
         ) as category_rollup
+        WHERE (? = 'All' OR ? = '' OR TRIM(LOWER(wbs_type)) = TRIM(LOWER(?)))
         GROUP BY ${groupByCols}
     `;
 };
@@ -1560,10 +1510,9 @@ const getDashboardTableSQL = (groupByCols, asblCols, ncCols) => {
 exports.getFinalDashboardTable = async (req, res) => {
     try {
         const { type, allowedCustomers } = req.query;
+        let wT = req.query.wbs_type || 'All';
         const wTArr = getValArray(req.query.wbs_type, req.query, 'wbs_type');
-        
         const asblCols = getDynamicSumColumns(wTArr, 'asbl');
-        const ncCols = getDynamicNCColumns(wTArr);
 
         let conditions = ["categories NOT IN ('Not to considered')", "cost_revenue = 'Cost'"];
         let baseParams = [];
@@ -1571,9 +1520,9 @@ exports.getFinalDashboardTable = async (req, res) => {
         applyDashboardFilters(req.query, conditions, baseParams);
         
         const whereSql = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
-        const sql = getDashboardTableSQL('bu', asblCols, ncCols).replace('{{WHERE_CLAUSE}}', whereSql) + " ORDER BY bu ASC";
+        const sql = getDashboardTableSQL('bu', asblCols).replace('{{WHERE_CLAUSE}}', whereSql) + " ORDER BY bu ASC";
 
-        const [rows] = await db.query(sql, baseParams);
+        const [rows] = await db.query(sql, [...baseParams, wT, wT, wT]);
         res.json(rows);
     } catch (error) { res.status(500).json({ error: error.message }); }
 };
@@ -1581,11 +1530,8 @@ exports.getFinalDashboardTable = async (req, res) => {
 exports.getNegativeLOATable = async (req, res) => {
     try {
         const { type, allowedCustomers } = req.query;
-        const wTArr = getValArray(req.query.wbs_type, req.query, 'wbs_type');
-        
-        const asblCols = getDynamicSumColumns(wTArr, 'asbl');
-        const ncCols = getDynamicNCColumns(wTArr);
-        const hasAsbl = asblCols !== "0";
+        let wT = req.query.wbs_type || 'All';
+        const showAsbl = wT !== 'All' && wT.toLowerCase() !== 'warranty/other';
 
         let conditions = ["categories NOT IN ('Not to considered')", "cost_revenue = 'Cost'"];
         let baseParams = [];
@@ -1593,12 +1539,9 @@ exports.getNegativeLOATable = async (req, res) => {
         applyDashboardFilters(req.query, conditions, baseParams);
 
         const whereSql = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
-        const varCondition = hasAsbl ? '(SUM(cat_asbl) - SUM(cat_ptd + cat_oc + cat_nc))' : '(0 - SUM(cat_ptd + cat_oc + cat_nc))';
+        const sql = getDashboardTableSQL('bu, customer, loa_id, loa_name', showAsbl).replace('{{WHERE_CLAUSE}}', whereSql) + " HAVING ROUND(" + (showAsbl ? 'SUM(type_asbl)' : '0.00') + " - SUM(type_ptd + type_oc + type_nc), 2) < 0 ORDER BY eac_vs_asbl ASC";
 
-        const sql = getDashboardTableSQL('bu, customer, loa_id, loa_name', asblCols, ncCols).replace('{{WHERE_CLAUSE}}', whereSql) + 
-                    ` HAVING ${varCondition} < 0 ORDER BY eac_vs_asbl ASC`;
-
-        const [rows] = await db.query(sql, baseParams);
+        const [rows] = await db.query(sql, [...baseParams, wT, wT, wT]);
         res.json(rows);
     } catch (error) { res.status(500).json({ error: error.message }); }
 };
@@ -1606,10 +1549,8 @@ exports.getNegativeLOATable = async (req, res) => {
 exports.getCostViewTable = async (req, res) => {
     try {
         const { type, allowedCustomers } = req.query;
-        const wTArr = getValArray(req.query.wbs_type, req.query, 'wbs_type');
-        
-        const asblCols = getDynamicSumColumns(wTArr, 'asbl');
-        const ncCols = getDynamicNCColumns(wTArr);
+        let wT = req.query.wbs_type || 'All';
+        const showAsbl = wT !== 'All' && wT.toLowerCase() !== 'warranty/other';
 
         let conditions = ["categories NOT IN ('Not to considered')", "cost_revenue = 'Cost'"];
         let baseParams = [];
@@ -1617,9 +1558,9 @@ exports.getCostViewTable = async (req, res) => {
         applyDashboardFilters(req.query, conditions, baseParams);
         
         const whereSql = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
-        const sql = getDashboardTableSQL('bu, customer, loa_id, loa_name', asblCols, ncCols).replace('{{WHERE_CLAUSE}}', whereSql) + " ORDER BY asbl DESC";
+        const sql = getDashboardTableSQL('bu, customer, loa_id, loa_name', showAsbl).replace('{{WHERE_CLAUSE}}', whereSql) + " ORDER BY asbl DESC";
 
-        const [rows] = await db.query(sql, baseParams); 
+        const [rows] = await db.query(sql, [...baseParams, wT, wT, wT]);
         res.json(rows);
     } catch (error) { res.status(500).json({ error: error.message }); }
 };
@@ -1627,10 +1568,8 @@ exports.getCostViewTable = async (req, res) => {
 exports.getCustomerViewTable = async (req, res) => {
     try {
         const { type, allowedCustomers } = req.query;
-        const wTArr = getValArray(req.query.wbs_type, req.query, 'wbs_type');
-        
-        const asblCols = getDynamicSumColumns(wTArr, 'asbl');
-        const ncCols = getDynamicNCColumns(wTArr);
+        let wT = req.query.wbs_type || 'All';
+        const showAsbl = wT !== 'All' && wT.toLowerCase() !== 'warranty/other';
 
         let conditions = ["categories NOT IN ('Not to considered')", "cost_revenue = 'Cost'"];
         let baseParams = [];
@@ -1638,9 +1577,9 @@ exports.getCustomerViewTable = async (req, res) => {
         applyDashboardFilters(req.query, conditions, baseParams);
         
         const whereSql = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
-        const sql = getDashboardTableSQL('customer', asblCols, ncCols).replace('{{WHERE_CLAUSE}}', whereSql) + " ORDER BY asbl DESC";
+        const sql = getDashboardTableSQL('customer', showAsbl).replace('{{WHERE_CLAUSE}}', whereSql) + " ORDER BY asbl DESC";
 
-        const [rows] = await db.query(sql, baseParams); 
+        const [rows] = await db.query(sql, [...baseParams, wT, wT, wT]);
         res.json(rows);
     } catch (error) { res.status(500).json({ error: error.message }); }
 };
@@ -1648,10 +1587,8 @@ exports.getCustomerViewTable = async (req, res) => {
 exports.getBuCustomerViewTable = async (req, res) => {
     try {
         const { type, allowedCustomers } = req.query;
-        const wTArr = getValArray(req.query.wbs_type, req.query, 'wbs_type');
-        
-        const asblCols = getDynamicSumColumns(wTArr, 'asbl');
-        const ncCols = getDynamicNCColumns(wTArr);
+        let wT = req.query.wbs_type || 'All';
+        const showAsbl = wT !== 'All' && wT.toLowerCase() !== 'warranty/other';
 
         let conditions = ["categories NOT IN ('Not to considered')", "cost_revenue = 'Cost'"];
         let baseParams = [];
@@ -1659,9 +1596,27 @@ exports.getBuCustomerViewTable = async (req, res) => {
         applyDashboardFilters(req.query, conditions, baseParams);
         
         const whereSql = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
-        const sql = getDashboardTableSQL('bu, customer', asblCols, ncCols).replace('{{WHERE_CLAUSE}}', whereSql) + " ORDER BY bu ASC, asbl DESC";
+        const sql = `
+            SELECT bu, customer,
+                   ${showAsbl ? 'ROUND(SUM(type_asbl), 2)' : "'0.00'"} as asbl,
+                   ROUND(SUM(type_asbl_loa), 2) as asbl_loa,
+                   ROUND(SUM(type_ptd), 2) as ptd,
+                   ROUND(SUM(type_oc), 2) as open_commitment,
+                   ROUND(SUM(type_nc), 2) as non_committed,
+                   ROUND(SUM(type_ptd + type_oc + type_nc), 2) as eac,
+                   ROUND(${showAsbl ? 'SUM(type_asbl)' : '0.00'} - SUM(type_ptd + type_oc + type_nc), 2) as eac_vs_asbl
+            FROM (
+                SELECT bu, customer, loa_id, categories, wbs_type,
+                       MAX(asbl) as type_asbl, MAX(asbl_loa) as type_asbl_loa,
+                       SUM(ptd) as type_ptd, MAX(open_commitment_KEUR) as type_oc, MAX(non_committed_editable) as type_nc
+                FROM final_dashboard_table ${whereSql}
+                GROUP BY bu, customer, loa_id, categories, wbs_type
+            ) t 
+            WHERE (? = 'All' OR ? = '' OR wbs_type = ?)
+            GROUP BY bu, customer 
+            ORDER BY bu ASC, asbl DESC`;
 
-        const [rows] = await db.query(sql, baseParams); 
+        const [rows] = await db.query(sql, [...baseParams, wT, wT, wT]);
         res.json(rows);
     } catch (error) { res.status(500).json({ error: error.message }); }
 };
@@ -1669,10 +1624,8 @@ exports.getBuCustomerViewTable = async (req, res) => {
 exports.getCustomerBuViewTable = async (req, res) => {
     try {
         const { type, allowedCustomers } = req.query;
-        const wTArr = getValArray(req.query.wbs_type, req.query, 'wbs_type');
-        
-        const asblCols = getDynamicSumColumns(wTArr, 'asbl');
-        const ncCols = getDynamicNCColumns(wTArr);
+        let wT = req.query.wbs_type || 'All';
+        const showAsbl = wT !== 'All' && wT.toLowerCase() !== 'warranty/other';
 
         let conditions = ["categories NOT IN ('Not to considered')", "cost_revenue = 'Cost'"];
         let baseParams = [];
@@ -1680,21 +1633,18 @@ exports.getCustomerBuViewTable = async (req, res) => {
         applyDashboardFilters(req.query, conditions, baseParams);
         
         const whereSql = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
-        const sql = getDashboardTableSQL('customer, bu', asblCols, ncCols).replace('{{WHERE_CLAUSE}}', whereSql) + " ORDER BY customer ASC";
+        const sql = getDashboardTableSQL('customer, bu', showAsbl).replace('{{WHERE_CLAUSE}}', whereSql) + " ORDER BY customer ASC";
 
-        const [rows] = await db.query(sql, baseParams); 
+        const [rows] = await db.query(sql, [...baseParams, wT, wT, wT]);
         res.json(rows);
     } catch (error) { res.status(500).json({ error: error.message }); }
 };
 
-
 exports.getCustomerBuLoaViewTable = async (req, res) => {
     try {
         const { type, allowedCustomers } = req.query;
-        const wTArr = getValArray(req.query.wbs_type, req.query, 'wbs_type');
-        
-        const asblCols = getDynamicSumColumns(wTArr, 'asbl');
-        const ncCols = getDynamicNCColumns(wTArr);
+        let wT = req.query.wbs_type || 'All';
+        const showAsbl = wT !== 'All' && wT.toLowerCase() !== 'warranty/other';
 
         let conditions = ["categories NOT IN ('Not to considered')", "cost_revenue = 'Cost'"];
         let baseParams = [];
@@ -1702,9 +1652,28 @@ exports.getCustomerBuLoaViewTable = async (req, res) => {
         applyDashboardFilters(req.query, conditions, baseParams);
         
         const whereSql = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
-        const sql = getDashboardTableSQL('customer, bu, loa_name, loa_id', asblCols, ncCols).replace('{{WHERE_CLAUSE}}', whereSql) + " ORDER BY customer ASC";
+        
+        const sql = `
+            SELECT customer, bu, loa_id, loa_name,
+                   ${showAsbl ? 'ROUND(SUM(type_asbl), 2)' : "'0.00'"} as asbl,
+                   ROUND(SUM(type_asbl_loa), 2) as asbl_loa,
+                   ROUND(SUM(type_ptd), 2) as ptd,
+                   ROUND(SUM(type_oc), 2) as open_commitment,
+                   ROUND(SUM(type_nc), 2) as non_committed,
+                   ROUND(SUM(type_ptd + type_oc + type_nc), 2) as eac,
+                   ROUND(${showAsbl ? 'SUM(type_asbl)' : '0.00'} - SUM(type_ptd + type_oc + type_nc), 2) as eac_vs_asbl
+            FROM (
+                SELECT customer, bu, loa_id, loa_name, categories, wbs_type,
+                       MAX(asbl) as type_asbl, MAX(asbl_loa) as type_asbl_loa,
+                       SUM(ptd) as type_ptd, MAX(open_commitment_KEUR) as type_oc, MAX(non_committed_editable) as type_nc
+                FROM final_dashboard_table ${whereSql}
+                GROUP BY customer, bu, loa_id, loa_name, categories, wbs_type
+            ) t 
+            WHERE (? = 'All' OR ? = '' OR wbs_type = ?)
+            GROUP BY customer, bu, loa_id, loa_name 
+            ORDER BY customer ASC`;
 
-        const [rows] = await db.query(sql, baseParams); 
+        const [rows] = await db.query(sql, [...baseParams, wT, wT, wT]);
         res.json(rows);
     } catch (error) { res.status(500).json({ error: error.message }); }
 };

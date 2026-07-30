@@ -200,9 +200,9 @@ const SummaryView = ({ user }) => {
                                     <HiOutlineRefresh className="text-green-700" /> 
                                     <span className="text-sm font-semibold text-green-700">Review</span>
                                 </button>
-                                {/* <button onClick={handleFullRefresh} className="border border-slate-300 border-t-4 border-t-slate-800 bg-white px-5 py-2 shadow-sm hover:shadow-md transition-all flex items-center gap-2 rounded-lg">
+                                <button onClick={handleFullRefresh} className="border border-slate-300 border-t-4 border-t-slate-800 bg-white px-5 py-2 shadow-sm hover:shadow-md transition-all flex items-center gap-2 rounded-lg">
                                     <span className="text-sm font-semibold text-slate-800">Sync DB</span>
-                                </button> */}
+                                </button>
                             </>
                         )}
 
