@@ -359,27 +359,11 @@ const DataTable = ({ title, columns, apiUrl, filters, onKpiUpdate, showSaveButto
     }, [apiUrl, filters]);
 
     return (
-        <div className="matrix-wrapper bg-white p-2 rounded-[2rem] shadow-2xl border border-gray-100">
-            <div className="flex justify-between items-center mb-6 border-b pb-4">
-                <p className="text-xl font-bold text-black mt-1 p-1 ml-2">Note:- All numerical values are in KEUR</p>
-                <div className="flex gap-3">
-                    {showSaveButton && (
-                        <button onClick={handleSave} className="group text-white px-5 py-2.5 rounded-2xl shadow-md flex items-center gap-2 transition-all duration-300 hover:scale-105 hover:shadow-xl mr-4 mt-2" style={{ background: 'linear-gradient(135deg, #4682b4, #35648d)' }}>
-                            <span className="text-lg transition-transform duration-300 group-hover:-translate-y-[1px]"><HiOutlineSave /></span>
-                            <div className="flex flex-col leading-tight text-left"><span className="text-sm font-black">Save</span></div>
-                        </button>
-                    )}
-                    {showClearButton && (
-                        <button onClick={handleClear} className="group text-white px-4 py-2 rounded-2xl shadow-md flex items-center gap-2 transition-all duration-300 hover:scale-105 hover:shadow-xl mr-5 mt-1" style={{ background: 'linear-gradient(135deg, #ef4444, #dc2626)' }}>
-                            <span className="text-lg transition-transform duration-300 group-hover:scale-110"><HiOutlineTrash /></span>
-                            <span className="text-sm font-black">Clear All</span>
-                        </button>
-                    )}
-                </div>
-            </div>
-            <table ref={tableRef} className="display nowrap pbi-table" style={{ width: '100%' }}></table>
-        </div>
-    );
+        <div className="matrix-wrapper bg-white p-2 rounded-[2rem]">
+        {/* 🔥 HEADER ACTIONS REMOVED (Moved to SummaryView) */}
+        <table ref={tableRef} className="display nowrap pbi-table" style={{ width: '100%' }}></table>
+    </div>
+);
 };
 
 export default DataTable;

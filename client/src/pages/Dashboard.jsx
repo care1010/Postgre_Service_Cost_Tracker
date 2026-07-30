@@ -2,8 +2,20 @@ import React, { useEffect, useRef, useState } from 'react';
 import axios from 'axios';
 import * as XLSX from "xlsx";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LabelList, LineChart, Line, ComposedChart } from 'recharts';
-import { HiChevronRight, HiOutlineFilter } from "react-icons/hi";
+// import { HiChevronRight, HiOutlineFilter } from "react-icons/hi";
 import FilterBar from '../components/FilterBar';
+import { 
+    HiOutlineFilter, 
+    HiOutlineSearch, 
+    HiOutlineRefresh, 
+    HiChevronRight, 
+    HiOutlineSave, 
+    HiDownload, 
+    HiOutlineViewGrid,
+    HiOutlineSwitchHorizontal,
+    HiOutlineSwitchVertical,
+    HiOutlineUpload,
+} from "react-icons/hi";
 
 const Dashboard = ({ user }) => {
     // 🔥 Added wbs and wbs_description
@@ -150,52 +162,117 @@ const Dashboard = ({ user }) => {
                 
                 {!isWbsSelected && (
                     <div className="mb-6 p-4 border border-orange-200 bg-orange-50/80 rounded-3xl text-sm text-orange-800 flex items-center gap-3 shadow-sm">
-                        <span className="text-xl">⚠️</span>
+                        <span className="mb-2 text-xl">⚠️</span>
                         <div>
-                            <span className="font-extrabold uppercase tracking-wide mr-1.5">Analytics Locked:</span> 
-                            Select a specific <strong>WBS Type</strong> from the Filter Pane to unlock accurate ASBL & PTD data.
+                            <span className="font-extrabold uppercase tracking-wide mr-1.5">Please select a specific WBS Type (Project or AMC or Warranty/Other) to unlock ASBL & Non Committed values.</span> 
                         </div>
                     </div>
                 )}
 
                 <div className="bg-white rounded-[1.5rem] p-6 shadow-lg border border-slate-100 mb-8">
                     <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center gap-4 mb-6">
-                        <h2 className="text-2xl font-black text-slate-800 uppercase">Summary Table (K€)</h2>
+                        <h2 className="text-2xl font-black font-semibold text-slate-800 uppercase">Summary (K€)</h2>
                         
                         <div className="flex flex-wrap items-center gap-2 xl:gap-3 ml-auto">
-                            <button onClick={() => setTableView(tableView === 'bu' ? 'bu-customer' : 'bu')}
-                                className={`px-4 py-2 rounded-xl text-[13px] font-bold transition-all shadow-sm ${(tableView === 'bu' || tableView === 'bu-customer') ? 'bg-[#124191] text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>
-                                {tableView === 'bu-customer' ? 'BU Only' : 'BU + Customer'}
+                            <p className="text-xs font-medium text-slate-800 uppercase tracking-wider mr-2">
+  Quick Views: 
+</p>
+                            <button
+                                onClick={() => setTableView('bu')}
+                                className={`border border-slate-300 border-t-4 px-5 py-2 rounded-lg shadow-sm hover:shadow-md transition-all text-sm font-semibold
+                                    ${tableView === 'bu'
+                                        ? 'border-t-[#124191] bg-[#2563EB] text-white'
+                                        : 'border-t-slate-800 bg-white text-slate-800 hover:bg-slate-50'
+                                    }`}
+                            >
+                                BU Only
                             </button>
-                            <button onClick={() => setTableView('loa')}
-                                className={`px-4 py-2 rounded-xl text-[13px] font-bold transition-all shadow-sm ${tableView === 'loa' ? 'bg-green-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>
-                                BU+Cust+LOA
+ 
+                            <button
+                                onClick={() => setTableView('bu-customer')}
+                                className={`border border-slate-300 border-t-4 px-5 py-2 rounded-lg shadow-sm hover:shadow-md transition-all text-sm font-semibold
+                                    ${tableView === 'bu-customer'
+                                        ? 'border-t-[#124191] bg-[#2563EB] text-white'
+                                        : 'border-t-slate-800 bg-white text-slate-800 hover:bg-slate-50'
+                                    }`}
+                            >
+                                BU + Customer
                             </button>
-                            <button onClick={() => setTableView(tableView === 'customer' ? 'customer-bu' : 'customer')}
-                                className={`px-4 py-2 rounded-xl text-[13px] font-bold transition-all shadow-sm ${(tableView === 'customer' || tableView === 'customer-bu') ? 'bg-purple-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>
-                                {tableView === 'customer-bu' ? 'Customer Only' : 'Customer + BU'}
+ 
+                            <button
+                                onClick={() => setTableView('loa')}
+                                className={`border border-slate-300 border-t-4 px-5 py-2 rounded-lg shadow-sm hover:shadow-md transition-all text-sm font-semibold
+                                    ${tableView === 'loa'
+                                        ? 'border-t-[#124191] bg-[#2563EB] text-white'
+                                        : 'border-t-slate-800 bg-white text-slate-800 hover:bg-slate-50'
+                                    }`}
+                            >
+                                BU + Cust + LOA
                             </button>
-                            <button onClick={() => setTableView('customer-bu-loa')}
-                                className={`px-4 py-2 rounded-xl text-[13px] font-bold transition-all shadow-sm ${tableView === 'customer-bu-loa' ? 'bg-red-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>
-                                Customer+BU+LOA
+                            <button
+                                onClick={() => setTableView('customer')}
+                                className={`border border-slate-300 border-t-4 px-5 py-2 rounded-lg shadow-sm hover:shadow-md transition-all text-sm font-semibold
+                                    ${tableView === 'customer'
+                                        ? 'border-t-[#124191] bg-[#2563EB] text-white'
+                                        : 'border-t-slate-800 bg-white text-slate-800 hover:bg-slate-50'
+                                    }`}
+                            >
+                                Customer Only
                             </button>
-                            <button onClick={() => setTableView('negative-loa')}
-                                className={`px-4 py-2 rounded-xl text-[13px] font-bold transition-all shadow-sm ${tableView === 'negative-loa' ? 'bg-orange-500 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>
+ 
+                            <button
+                                onClick={() => setTableView('customer-bu')}
+                                className={`border border-slate-300 border-t-4 px-5 py-2 rounded-lg shadow-sm hover:shadow-md transition-all text-sm font-semibold
+                                    ${tableView === 'customer-bu'
+                                        ? 'border-t-[#124191] bg-[#2563EB] text-white'
+                                        : 'border-t-slate-800 bg-white text-slate-800 hover:bg-slate-50'
+                                    }`}
+                            >
+                                Customer + BU
+                            </button>
+ 
+                            <button
+                                onClick={() => setTableView('customer-bu-loa')}
+                                className={`border border-slate-300 border-t-4 px-5 py-2 rounded-lg shadow-sm hover:shadow-md transition-all text-sm font-semibold
+                                    ${tableView === 'customer-bu-loa'
+                                        ? 'border-t-[#124191] bg-[#2563EB] text-white'
+                                        : 'border-t-slate-800 bg-white text-slate-800 hover:bg-slate-50'
+                                    }`}
+                            >
+                                Customer + BU + LOA
+                            </button>
+ 
+                            <button
+                                onClick={() => setTableView('negative-loa')}
+                                className={`border border-slate-300 border-t-4 px-5 py-2 rounded-lg shadow-sm hover:shadow-md transition-all text-sm font-semibold
+                                    ${tableView === 'negative-loa'
+                                        ? 'border-t-[#124191] bg-[#2563EB] text-white'
+                                        : 'border-t-slate-800 bg-white text-slate-800 hover:bg-slate-50'
+                                    }`}
+                            >
                                 -ve LOA
                             </button>
+
+                            <button onClick={exportToExcel} className="border border-slate-300 border-t-4 border-t-blue-500 bg-white px-5 py-2 shadow-sm hover:shadow-md transition-all flex items-center gap-2 rounded-lg">
+                                                        <HiOutlineUpload className="text-blue-600" /> 
+                                                        <span className="text-sm font-semibold text-blue-700">Export</span>
+                                                    </button>
                             
-                            <button onClick={exportToExcel} className="bg-emerald-500 text-white px-5 py-2 rounded-xl text-[13px] font-bold shadow-md hover:bg-emerald-600 transition-all ml-2 flex items-center gap-2">
+                            {/* <button onClick={exportToExcel} className="bg-emerald-500 text-white px-5 py-2 rounded-xl text-[13px] font-bold shadow-md hover:bg-emerald-600 transition-all ml-2 flex items-center gap-2">
                                 📥 EXPORT
-                            </button>
+                            </button> */}
                         </div>
                     </div>
 
                     <div className="overflow-auto max-h-[400px] border border-slate-200 rounded-xl custom-scrollbar">
                         <table className="min-w-full text-sm border-collapse">
-                            <thead className="bg-slate-100 sticky top-0 z-10 shadow-sm">
+                            <thead className="bg-[#004593] sticky top-0 z-10 shadow-sm">
                                 <tr>
                                     {columnsToShow.map((col) => (
-                                        <th key={col} className="border border-slate-200 px-4 py-3 text-center font-black text-slate-600 text-[11px] uppercase tracking-wider">
+                                        <th
+                                            key={col}
+                                            className="border border-[#003a7a] px-4 py-3 text-center font-black text-white text-[11px] uppercase tracking-wider"
+                                        >
                                             {col.replaceAll('_', ' ')}
                                         </th>
                                     ))}
@@ -222,7 +299,7 @@ const Dashboard = ({ user }) => {
 
                 {/* 3. BU KPI SECTION */}
                 <div className="bg-white rounded-[1.5rem] shadow-lg p-6 mb-8 border border-slate-100">
-                    <h2 className="text-2xl font-black text-slate-800 uppercase tracking-tight mb-6">Business Unit (K€)</h2>
+                    <h2 className="text-2xl font-black font-semibold text-slate-800 uppercase tracking-tight mb-6">Business Unit (K€)</h2>
                     <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
                         {sortedBuData.map((item) => {
                             const ptdPerc = item.asbl > 0 ? ((item.ptd / item.asbl) * 100).toFixed(1) : "0.0";
@@ -232,25 +309,25 @@ const Dashboard = ({ user }) => {
                             let eacColor = 'bg-slate-50 border-slate-200 text-slate-400';
 
                             if (isWbsSelected) {
-                                ptdColor = parseFloat(ptdPerc) <= 100 ? 'bg-green-50 border-green-200 text-green-700' : 'bg-red-50 border-red-200 text-red-700';
-                                eacColor = item.eac_vs_asbl >= 0 ? 'bg-green-50 border-green-200 text-green-700' : 'bg-red-50 border-red-200 text-red-700';
+                                ptdColor = parseFloat(ptdPerc) <= 100 ? 'font-semibold bg-blue-100 border-blue-500 text-black' : 'font-semibold bg-blue-100 border-blue-500 text-black';
+                                eacColor = item.eac_vs_asbl >= 0 ? 'font-normal bg-blue-100 border-blue-500 text-black' : 'font-normal bg-blue-100 border-blue-500 text-black';
                             }
 
                             return (
                                 <div key={item.bu} className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm hover:shadow-md transition-all flex items-center gap-4">
-                                    <div className="flex-shrink-0 bg-[#124191] text-white px-3 py-4 rounded-xl flex flex-col items-center justify-center min-w-[70px] shadow-inner">
-                                        <span className="text-[8px] font-bold uppercase tracking-wider opacity-80 mb-1">BU</span>
+                                    <div className="flex-shrink-0 bg-[#124191] text-white px-3 py-4 rounded-xl flex flex-col items-center justify-center min-w-[70px] min-h-[72px] shadow-inner">
+                                        {/* <span className="text-[8px] font-bold uppercase tracking-wider opacity-80 mb-1">BU</span> */}
                                         <span className="text-sm font-black tracking-tight">{item.bu}</span>
                                     </div>
                                     
                                     <div className="flex-1 grid grid-cols-2 gap-3">
                                         <div className={`p-3 rounded-xl border ${ptdColor} text-center flex flex-col justify-center transition-colors`}>
-                                            <p className="text-[10px] font-bold uppercase mb-1 opacity-80">PTD Util %</p>
-                                            <p className="text-lg font-black">{ptdPerc}%</p>
+                                            <p className="text-[12px] font-bold uppercase mb-1 opacity-80">PTD Util %</p>
+                                            <p className="text-[24px] font-semibold text-lg font-black">{ptdPerc}%</p>
                                         </div>
                                         <div className={`p-3 rounded-xl border ${eacColor} text-center flex flex-col justify-center transition-colors`}>
-                                            <p className="text-[10px] font-bold uppercase mb-1 opacity-80">EAC vs ASBL</p>
-                                            <p className="text-lg font-black">{eacPerc}%</p>
+                                            <p className="text-[12px] font-bold uppercase mb-1 opacity-80">EAC vs ASBL</p>
+                                            <p className="text-[24px] font-semibold text-lg font-black">{eacPerc}%</p>
                                         </div>
                                     </div>
                                 </div>
@@ -261,16 +338,16 @@ const Dashboard = ({ user }) => {
                     <div className="w-full h-[450px] mt-8">
                         <ResponsiveContainer width="100%" height="100%">
                             <BarChart data={sortedBuData} margin={{ top: 20, right: 30, left: 20, bottom: 20 }} barGap={10} barCategoryGap="25%">
-                                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f901" />
                                 <XAxis dataKey="bu" axisLine={false} tickLine={false} tick={{ fill: '#1e293b', fontSize: 13, fontWeight: 900 }} dy={10}/>
-                                <YAxis axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontSize: 11 }} />
+                                <YAxis axisLine={false} tickLine={false} tick={{ fill: '#94a3b800', fontSize: 11 }} />
                                 
                                 <Tooltip cursor={{ fill: '#f8fafc' }} contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 25px -5px rgba(0,0,0,0.1)' }} formatter={(value, name) => [formatNum(value), String(name).toUpperCase()]} />
                                 <Legend verticalAlign="top" align="right" iconType="circle" formatter={(value) => <span style={{ color: '#475569', fontWeight: '800', textTransform: 'uppercase', fontSize: '12px', marginRight: '10px' }}>{String(value).toUpperCase()}</span>} />
 
-                                <Bar dataKey="asbl" name="ASBL" fill="#2563eb" radius={[6, 6, 0, 0]} barSize={100}><LabelList dataKey="asbl" position="top" formatter={(v) => formatNum(v)} style={{ fontSize: '11px', fontWeight: '800', fill: '#1e293b' }} offset={10}/></Bar>
-                                <Bar dataKey="ptd" name="PTD" fill="#10b981" radius={[6, 6, 0, 0]} barSize={100}><LabelList dataKey="ptd" position="top" formatter={(v) => formatNum(v)} style={{ fontSize: '11px', fontWeight: '800', fill: '#1e293b' }} offset={10}/></Bar>
-                                <Bar dataKey="eac" name="EAC" fill="#f59e0b" radius={[6, 6, 0, 0]} barSize={100}><LabelList dataKey="eac" position="top" formatter={(v) => formatNum(v)} style={{ fontSize: '11px', fontWeight: '800', fill: '#1e293b' }} offset={10}/></Bar>
+                                <Bar dataKey="asbl" name="ASBL" fill="#2563eb" radius={[6, 6, 0, 0]} barSize={100}><LabelList dataKey="asbl" position="top" formatter={(v) => formatNum(v)} style={{ fontSize: '16px', fontWeight: '600', fill: '#1e293b' }} offset={10}/></Bar>
+                                <Bar dataKey="eac" name="EAC" fill="#f59e0b" radius={[6, 6, 0, 0]} barSize={100}><LabelList dataKey="eac" position="top" formatter={(v) => formatNum(v)} style={{ fontSize: '16px', fontWeight: '600', fill: '#1e293b' }} offset={10}/></Bar>
+                                <Bar dataKey="ptd" name="PTD" fill="#10b981" radius={[6, 6, 0, 0]} barSize={100}><LabelList dataKey="ptd" position="top" formatter={(v) => formatNum(v)} style={{ fontSize: '16px', fontWeight: '600', fill: '#1e293b' }} offset={10}/></Bar>
                             </BarChart>
                         </ResponsiveContainer>
                     </div>
@@ -280,24 +357,24 @@ const Dashboard = ({ user }) => {
                 <div className="bg-white rounded-[1.5rem] shadow-lg p-6 mb-8 relative border border-slate-100">
                     <div className="flex items-center justify-between mb-6">
                         <div>
-                            <h2 className="text-2xl font-black text-slate-800 uppercase tracking-tight">LOA Analytics (K€)</h2>
+                            <h2 className="text-2xl font-black font-semibold text-slate-800 uppercase tracking-tight">LOA Analytics (K€)</h2>
                             <p className="text-slate-400 text-sm mt-1 font-semibold">ASBL • PTD • EAC Comparison</p>
                         </div>
                         <button onClick={() => setShowAllLoa(!showAllLoa)} className="px-5 py-2.5 rounded-xl bg-[#124191] text-white text-[13px] font-bold shadow-md hover:bg-blue-800 transition-all">
-                            {showAllLoa ? 'SHOW TOP 10 ONLY' : 'SHOW ALL LOAS'}
+                            {showAllLoa ? 'SHOW TOP 10 ONLY' : 'SHOW ALL LOAs'}
                         </button>
                     </div>
                     <div className="w-full max-h-[600px] overflow-y-auto pr-2 custom-scrollbar">
                         <ResponsiveContainer width="100%" height={showAllLoa ? Math.max(displayLoaData.length * 60, 400) : 500}>
                             <BarChart data={displayLoaData} layout="vertical" barSize={15} margin={{ top: 10, right: 40, left: 80, bottom: 10 }}>
                                 <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#f1f5f9"/>
-                                <XAxis type="number" axisLine={false} tickLine={false} tick={{fill: '#94a3b8'}}/>
+                                <XAxis type="number" axisLine={false} tickLine={false} tick={{fill: '#94a3b801'}}/>
                                 <YAxis dataKey="loa_name" type="category" width={250} axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: '#475569', fontWeight: 700 }} />
                                 <Tooltip formatter={(value, name) => [formatNum(value), String(name).toUpperCase()]} contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 25px -5px rgba(0,0,0,0.1)' }}/>
-                                <Legend verticalAlign="top" iconType="circle" formatter={(value) => <span style={{ color: '#475569', fontWeight: '800', textTransform: 'uppercase', fontSize: '11px' }}>{String(value).toUpperCase()}</span>}/>
+                                <Legend verticalAlign="top"  align="right" iconType="circle" formatter={(value) => <span style={{ color: '#475569', fontWeight: '800', textTransform: 'uppercase', fontSize: '11px' }}>{String(value).toUpperCase()}</span>}/>
                                 <Bar dataKey="asbl" name="ASBL" fill="#2563eb" radius={[0, 4, 4, 0]}><LabelList dataKey="asbl" position="right" formatter={(v) => formatNum(v)} style={{ fontSize: '10px', fontWeight: 'bold', fill: '#1e293b' }} /></Bar>
-                                <Bar dataKey="ptd" name="PTD" fill="#10b981" radius={[0, 4, 4, 0]}><LabelList dataKey="ptd" position="right" formatter={(v) => formatNum(v)} style={{ fontSize: '10px', fontWeight: 'bold', fill: '#1e293b' }} /></Bar>
                                 <Bar dataKey="eac" name="EAC" fill="#f59e0b" radius={[0, 4, 4, 0]}><LabelList dataKey="eac" position="right" formatter={(v) => formatNum(v)} style={{ fontSize: '10px', fontWeight: 'bold', fill: '#1e293b' }} /></Bar>
+                                <Bar dataKey="ptd" name="PTD" fill="#10b981" radius={[0, 4, 4, 0]}><LabelList dataKey="ptd" position="right" formatter={(v) => formatNum(v)} style={{ fontSize: '10px', fontWeight: 'bold', fill: '#1e293b' }} /></Bar>
                             </BarChart>
                         </ResponsiveContainer>
                     </div>
@@ -306,9 +383,9 @@ const Dashboard = ({ user }) => {
                 {/* 5. TREND GRAPH */}
                 <div className="bg-white rounded-[1.5rem] shadow-lg p-6 relative border border-slate-100">
                     <div className="flex flex-col md:flex-row md:justify-between md:items-center gap-4 mb-6">
-                        <h2 className="text-2xl font-black text-slate-800 uppercase tracking-tight">Non Committed Trend</h2>
+                        <h2 className="text-2xl font-black font-semibold text-slate-800 uppercase tracking-tight">Non Committed Trend</h2>
                         <select value={selectedTrendLoa} onChange={(e) => setSelectedTrendLoa(e.target.value)} className="border border-slate-300 bg-slate-50 text-slate-700 font-bold rounded-xl px-4 py-2 outline-none">
-                            <option value="">ALL LOAS</option>
+                            <option value="">ALL LOAs</option>
                             {trendLoas.map((item) => (<option key={item.loa_name} value={item.loa_name}>{item.loa_name.toUpperCase()}</option>))}
                         </select>
                     </div>

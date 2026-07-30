@@ -210,3 +210,63 @@ exports.fixMissingSummaryRows = async (req, res) => {
     } catch (error) { res.status(500).json({ error: error.message }); }
     finally { if (connection) connection.release(); }
 };
+
+// ----------------------------------------------------------------------------
+//          Keep this code commented to add new cost elements in CJ74 sheet
+// ----------------------------------------------------------------------------
+// exports.testPtdSeeding = async (req, res) => {
+//     let connection;
+//     try {
+//         connection = await db.getConnection();
+//         console.log("🛠️ Starting Multi-DB Smart Seeding (Fixed Data Types)...");
+ 
+//         // Javascript se Year aur Month nikalna sabse safe h (Integer vs String error nahi aayega)
+//         const currentYear = new Date().getFullYear();
+//         const currentMonth = (new Date().getMonth() + 1).toString();
+ 
+//         const sql = `
+//             INSERT INTO cj74_new (year, per, object_1, object_2, cost_element, val_in_rc)
+//             SELECT
+//                 ${currentYear},
+//                 '${currentMonth}',
+//                 ideal.single_wbs,
+//                 ideal.single_wbs,
+//                 ideal.ce_code,
+//                 0
+//             FROM (
+//                 SELECT DISTINCT
+//                     c.object_1 AS single_wbs,
+//                     ce_union.cost_element AS ce_code
+//                 FROM cj74_new c
+//                 CROSS JOIN (
+//                     SELECT cost_element FROM master_cost_element
+//                     UNION
+//                     SELECT '11-Overall ASBL'
+//                 ) AS ce_union
+//                 WHERE c.object_1 IS NOT NULL
+//             ) AS ideal
+//             WHERE NOT EXISTS (
+//                 SELECT 1 FROM cj74_new actual
+//                 WHERE actual.object_1 = ideal.single_wbs
+//                 AND actual.cost_element = ideal.ce_code
+//             )
+//         `;
+ 
+//         const [result] = await connection.query(sql);
+//         const insertedRows = result.affectedRows || result.rowCount || 0;
+ 
+//         console.log(`✅ Success! Data Type issue resolved. Added ${insertedRows} rows.`);
+ 
+//         res.status(200).json({
+//             success: true,
+//             message: "17-Category Sync Complete (Multi-DB Safe)!",
+//             new_rows_inserted: insertedRows
+//         });
+ 
+//     } catch (error) {
+//         console.error("❌ Seeding Error:", error);
+//         res.status(500).json({ error: error.message });
+//     } finally {
+//         if (connection) connection.release();
+//     }
+// };

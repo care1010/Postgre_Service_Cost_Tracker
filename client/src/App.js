@@ -55,8 +55,8 @@ function App() {
         
         {!isDrillDown && (
             <div className="mb-8 text-center">
-                <h1 className="text-3xl font-black text-slate-800 tracking-tight">
-                    Financial Services <span className="text-blue-600">Cost Tracker Platform</span>
+                <h1 className="text-3xl font-semibold text-slate-800 tracking-tight">
+                    NI INDIA Financial Cost Tracker
                 </h1>
             </div>
         )}

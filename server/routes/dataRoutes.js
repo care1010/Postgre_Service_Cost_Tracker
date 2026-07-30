@@ -127,4 +127,6 @@ router.get('/run-fix-db', projectController.fixMissingSummaryRows);
 
 router.get('/admin/master-customers', adminController.getAllMasterCustomers);
 
+// router.get('/test-ptd-seeding', projectController.testPtdSeeding);
+
 module.exports = router;
