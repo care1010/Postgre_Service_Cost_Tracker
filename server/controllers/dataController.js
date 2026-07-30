@@ -1319,34 +1319,49 @@ exports.getDashboardFilters = async (req, res) => {
     }
 };
 
-// 🔥 DYNAMIC ASBL DASHBOARD ANALYTICS QUERY
-const getDashboardAnalyticsSQL = (groupByCol, asblCols) => {
+// ==========================================
+// 1. DASHBOARD ANALYTICS SQL GENERATOR (Fixed Postgres MAX(0) Error)
+// ==========================================
+const getDashboardAnalyticsSQL = (groupByCol, asblCols, ncCols) => {
     const hasAsbl = asblCols !== "0";
-    const asblValExpression = asblCols === "0" ? "0" : `COALESCE(NULLIF(${asblCols}, 0), asbl, 0)`;
+    const hasNc = ncCols !== "0"; 
+    
+    // 1. Safe Subquery Selection
+    const asblSubquery = hasAsbl ? `MAX(${asblCols})` : `0`;
+    const ncSubquery = hasNc ? `MAX(${ncCols})` : `0`;
+
+    // 2. Safe Middle Aggregation (Prevents Postgres MAX(0) Error!)
+    const catAsbl = hasAsbl ? `MAX(COALESCE(static.asbl_val, 0))` : `0`;
+    const catNc = hasNc ? `MAX(COALESCE(static.nc_val, 0))` : `0`;
+
+    // 3. Final Outer Selection
+    const asblSelect = hasAsbl ? 'ROUND(SUM(cat_asbl), 2)' : '0.00';
+    const ncSelect = hasNc ? 'ROUND(SUM(cat_nc), 2)' : '0.00';
+    const varSelect = hasAsbl ? 'ROUND(SUM(cat_asbl) - SUM(cat_ptd + cat_oc + cat_nc), 2)' : '0.00';
+
+    const prefixCol = `t.${groupByCol.trim()} AS ${groupByCol.trim()}`;
+    const groupByInner = `t.${groupByCol.trim()}`;
 
     return `
         SELECT 
             ${groupByCol},
-            ${hasAsbl ? 'ROUND(SUM(cat_asbl), 2)' : "'0.00'"} as asbl,
+            CAST(${asblSelect} AS NUMERIC(15,2)) as asbl,
             ROUND(SUM(cat_ptd), 2) as ptd,
-            ROUND(SUM(cat_oc), 2) as open_commitment,
-            ROUND(SUM(cat_nc), 2) as non_committed,
             ROUND(SUM(cat_ptd + cat_oc + cat_nc), 2) as eac,
-            ROUND(${hasAsbl ? 'SUM(cat_asbl)' : '0.00'} - SUM(cat_ptd + cat_oc + cat_nc), 2) as eac_vs_asbl
+            ROUND(SUM(cat_oc), 2) as open_commitment,
+            CAST(${ncSelect} AS NUMERIC(15,2)) as non_committed,
+            CAST(${varSelect} AS NUMERIC(15,2)) as eac_vs_asbl
         FROM (
-            -- 🟢 STEP 1: CATEGORY LEVEL ROLLUP (EXACT MATCHING SUMMARY PAGE MATH!)
             SELECT 
-                t.${groupByCol},
-                t.loa_id,
+                ${prefixCol},
                 t."Merged_wbs_categories",
-                t.wbs_type,
-                MAX(COALESCE(static.asbl_val, 0)) as cat_asbl,
+                ${catAsbl} as cat_asbl,
                 SUM(t.ptd_val) as cat_ptd,
                 SUM(t.oc_val) as cat_oc,
-                MAX(COALESCE(static.nc_val, 0)) as cat_nc
+                ${catNc} as cat_nc
             FROM (
                 SELECT 
-                    ${groupByCol}, loa_id, categories, "Merged_wbs_categories", wbs_type,
+                    ${groupByCol}, "Merged_wbs_categories", 
                     ptd as ptd_val, open_commitment_KEUR as oc_val
                 FROM final_dashboard_table
                 {{WHERE_CLAUSE}}
@@ -1354,28 +1369,29 @@ const getDashboardAnalyticsSQL = (groupByCol, asblCols) => {
             LEFT JOIN (
                 SELECT 
                     "Merged_wbs_categories", 
-                    MAX(${asblValExpression}) as asbl_val, 
-                    MAX(non_committed_editable) as nc_val
+                    ${asblSubquery} as asbl_val, 
+                    ${ncSubquery} as nc_val
                 FROM final_dashboard_table
                 GROUP BY "Merged_wbs_categories"
             ) as static ON t."Merged_wbs_categories" = static."Merged_wbs_categories"
-            GROUP BY t.${groupByCol}, t.loa_id, t."Merged_wbs_categories", t.wbs_type
+            
+            GROUP BY ${groupByInner}, t."Merged_wbs_categories"
         ) as category_rollup
-        WHERE (? = 'All' OR ? = '' OR TRIM(LOWER(wbs_type)) = TRIM(LOWER(?)))
         GROUP BY ${groupByCol}
         ORDER BY ${groupByCol} ASC
     `;
 };
 
-// 1. Business Unit Analytics (Updated with Dynamic ASBL)
+// ==========================================
+// 3. BU ANALYTICS API (Removed Extra wT params)
+// ==========================================
 exports.getBuAnalytics = async (req, res) => {
     try {
         const { type, allowedCustomers } = req.query;
-        let wT = req.query.wbs_type || 'All';
         const wTArr = getValArray(req.query.wbs_type, req.query, 'wbs_type');
         
-        // 🔥 Dynamic ASBL Column Selection (Picks asbl_project, asbl_amc or 0)
         const asblCols = getDynamicSumColumns(wTArr, 'asbl');
+        const ncCols = getDynamicNCColumns(wTArr); // Added ncCols here
 
         let conditions = ["categories NOT IN ('Not to considered')", "cost_revenue = 'Cost'"];
         let baseParams = [];
@@ -1383,22 +1399,24 @@ exports.getBuAnalytics = async (req, res) => {
         applyDashboardFilters(req.query, conditions, baseParams);
         
         const whereSql = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
-        const sql = getDashboardAnalyticsSQL('bu', asblCols).replace('{{WHERE_CLAUSE}}', whereSql);
+        const sql = getDashboardAnalyticsSQL('bu', asblCols, ncCols).replace('{{WHERE_CLAUSE}}', whereSql);
 
-        const [rows] = await db.query(sql, [...baseParams, wT, wT, wT]);
+        // 🔥 FIX: Passed ONLY baseParams
+        const [rows] = await db.query(sql, baseParams);
         res.status(200).json(rows);
     } catch (error) { res.status(500).json({ error: error.message }); }
 };
 
-// 2. LOA Name Analytics (Updated with Dynamic ASBL)
+// ==========================================
+// 4. LOA ANALYTICS API (Removed Extra wT params)
+// ==========================================
 exports.getLoaAnalytics = async (req, res) => {
     try {
         const { type, allowedCustomers, showAll } = req.query;
-        let wT = req.query.wbs_type || 'All';
         const wTArr = getValArray(req.query.wbs_type, req.query, 'wbs_type');
         
-        // 🔥 Dynamic ASBL Column Selection
         const asblCols = getDynamicSumColumns(wTArr, 'asbl');
+        const ncCols = getDynamicNCColumns(wTArr); // Added ncCols here
         const limitSql = showAll === 'true' ? '' : 'LIMIT 10';
 
         let conditions = ["categories NOT IN ('Not to considered')", "cost_revenue = 'Cost'"];
@@ -1407,11 +1425,12 @@ exports.getLoaAnalytics = async (req, res) => {
         applyDashboardFilters(req.query, conditions, baseParams);
         
         const whereSql = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
-        const rawSql = getDashboardAnalyticsSQL('loa_name', asblCols).replace('{{WHERE_CLAUSE}}', whereSql);
+        const rawSql = getDashboardAnalyticsSQL('loa_name', asblCols, ncCols).replace('{{WHERE_CLAUSE}}', whereSql);
         
         const sql = `SELECT * FROM (${rawSql}) final_t ORDER BY asbl DESC ${limitSql}`;
 
-        const [rows] = await db.query(sql, [...baseParams, wT, wT, wT]);
+        // 🔥 FIX: Passed ONLY baseParams
+        const [rows] = await db.query(sql, baseParams);
         res.status(200).json(rows);
     } catch (error) { res.status(500).json({ error: error.message }); }
 };
@@ -1458,36 +1477,54 @@ exports.getTrendLoas = async (req, res) => {
     } catch (error) { res.status(500).json({ error: error.message }); }
 };
 
-// 🔥 DYNAMIC ASBL DASHBOARD TABLE QUERY
-const getDashboardTableSQL = (groupByCols, asblCols) => {
+// ==========================================
+// 2. DASHBOARD TABLE SQL GENERATOR (Fixed Postgres MAX(0) Error)
+// ==========================================
+const getDashboardTableSQL = (groupByCols, asblCols, ncCols) => {
     const hasAsbl = asblCols !== "0";
-    const asblValExpression = asblCols === "0" ? "0" : `COALESCE(NULLIF(${asblCols}, 0), asbl, 0)`;
+    const hasNc = ncCols !== "0"; 
+    
+    // 1. Safe Subquery Selection
+    const asblSubquery = hasAsbl ? `MAX(${asblCols})` : `0`;
+    const asblLoaSubquery = hasAsbl ? `MAX(asbl_loa)` : `0`;
+    const ncSubquery = hasNc ? `MAX(${ncCols})` : `0`;
+
+    // 2. Safe Middle Aggregation (Prevents Postgres MAX(0) Error!)
+    const catAsbl = hasAsbl ? `MAX(COALESCE(static.asbl_val, 0))` : `0`;
+    const catAsblLoa = hasAsbl ? `MAX(COALESCE(static.asbl_loa_val, 0))` : `0`;
+    const catNc = hasNc ? `MAX(COALESCE(static.nc_val, 0))` : `0`;
+
+    // 3. Final Outer Selection
+    const asblSelect = hasAsbl ? 'ROUND(SUM(cat_asbl), 2)' : '0.00';
+    const asblLoaSelect = hasAsbl ? 'ROUND(SUM(cat_asbl_loa), 2)' : '0.00';
+    const ncSelect = hasNc ? 'ROUND(SUM(cat_nc), 2)' : '0.00';
+    const varSelect = hasAsbl ? 'ROUND(SUM(cat_asbl) - SUM(cat_ptd + cat_oc + cat_nc), 2)' : '0.00';
+
+    const prefixCols = groupByCols.split(',').map(c => `t.${c.trim()} AS ${c.trim()}`).join(', ');
+    const groupByInner = groupByCols.split(',').map(c => `t.${c.trim()}`).join(', ');
 
     return `
         SELECT 
             ${groupByCols},
-            ${hasAsbl ? 'ROUND(SUM(cat_asbl), 2)' : "'0.00'"} as asbl,
-            ROUND(SUM(cat_asbl_loa), 2) as asbl_loa,
+            CAST(${asblSelect} AS NUMERIC(15,2)) as asbl,
+            CAST(${asblLoaSelect} AS NUMERIC(15,2)) as asbl_loa,
             ROUND(SUM(cat_ptd), 2) as ptd,
             ROUND(SUM(cat_oc), 2) as open_commitment,
-            ROUND(SUM(cat_nc), 2) as non_committed,
+            CAST(${ncSelect} AS NUMERIC(15,2)) as non_committed,
             ROUND(SUM(cat_ptd + cat_oc + cat_nc), 2) as eac,
-            ROUND(${hasAsbl ? 'SUM(cat_asbl)' : '0.00'} - SUM(cat_ptd + cat_oc + cat_nc), 2) as eac_vs_asbl
+            CAST(${varSelect} AS NUMERIC(15,2)) as eac_vs_asbl
         FROM (
-            -- 🟢 STEP 1: CATEGORY LEVEL ROLLUP (EXACT MATCHING SUMMARY PAGE MATH!)
             SELECT 
-                ${groupByCols},
-                t.loa_id,
+                ${prefixCols},
                 t."Merged_wbs_categories",
-                t.wbs_type,
-                MAX(COALESCE(static.asbl_val, 0)) as cat_asbl,
-                MAX(COALESCE(static.asbl_loa_val, 0)) as cat_asbl_loa,
+                ${catAsbl} as cat_asbl,
+                ${catAsblLoa} as cat_asbl_loa,
                 SUM(t.ptd_val) as cat_ptd,
                 SUM(t.oc_val) as cat_oc,
-                MAX(COALESCE(static.nc_val, 0)) as cat_nc
+                ${catNc} as cat_nc
             FROM (
                 SELECT 
-                    ${groupByCols}, loa_id, categories, "Merged_wbs_categories", wbs_type,
+                    ${groupByCols}, "Merged_wbs_categories", 
                     ptd as ptd_val, open_commitment_KEUR as oc_val
                 FROM final_dashboard_table
                 {{WHERE_CLAUSE}}
@@ -1495,15 +1532,15 @@ const getDashboardTableSQL = (groupByCols, asblCols) => {
             LEFT JOIN (
                 SELECT 
                     "Merged_wbs_categories", 
-                    MAX(${asblValExpression}) as asbl_val, 
-                    MAX(asbl_loa) as asbl_loa_val,
-                    MAX(non_committed_editable) as nc_val
+                    ${asblSubquery} as asbl_val, 
+                    ${asblLoaSubquery} as asbl_loa_val,
+                    ${ncSubquery} as nc_val
                 FROM final_dashboard_table
                 GROUP BY "Merged_wbs_categories"
             ) as static ON t."Merged_wbs_categories" = static."Merged_wbs_categories"
-            GROUP BY ${groupByCols}, t.loa_id, t."Merged_wbs_categories", t.wbs_type
+            
+            GROUP BY ${groupByInner}, t."Merged_wbs_categories"
         ) as category_rollup
-        WHERE (? = 'All' OR ? = '' OR TRIM(LOWER(wbs_type)) = TRIM(LOWER(?)))
         GROUP BY ${groupByCols}
     `;
 };
@@ -1512,9 +1549,10 @@ const getDashboardTableSQL = (groupByCols, asblCols) => {
 exports.getFinalDashboardTable = async (req, res) => {
     try {
         const { type, allowedCustomers } = req.query;
-        let wT = req.query.wbs_type || 'All';
         const wTArr = getValArray(req.query.wbs_type, req.query, 'wbs_type');
+        
         const asblCols = getDynamicSumColumns(wTArr, 'asbl');
+        const ncCols = getDynamicNCColumns(wTArr);
 
         let conditions = ["categories NOT IN ('Not to considered')", "cost_revenue = 'Cost'"];
         let baseParams = [];
@@ -1522,9 +1560,9 @@ exports.getFinalDashboardTable = async (req, res) => {
         applyDashboardFilters(req.query, conditions, baseParams);
         
         const whereSql = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
-        const sql = getDashboardTableSQL('bu', asblCols).replace('{{WHERE_CLAUSE}}', whereSql) + " ORDER BY bu ASC";
+        const sql = getDashboardTableSQL('bu', asblCols, ncCols).replace('{{WHERE_CLAUSE}}', whereSql) + " ORDER BY bu ASC";
 
-        const [rows] = await db.query(sql, [...baseParams, wT, wT, wT]);
+        const [rows] = await db.query(sql, baseParams);
         res.json(rows);
     } catch (error) { res.status(500).json({ error: error.message }); }
 };
@@ -1532,8 +1570,11 @@ exports.getFinalDashboardTable = async (req, res) => {
 exports.getNegativeLOATable = async (req, res) => {
     try {
         const { type, allowedCustomers } = req.query;
-        let wT = req.query.wbs_type || 'All';
-        const showAsbl = wT !== 'All' && wT.toLowerCase() !== 'warranty/other';
+        const wTArr = getValArray(req.query.wbs_type, req.query, 'wbs_type');
+        
+        const asblCols = getDynamicSumColumns(wTArr, 'asbl');
+        const ncCols = getDynamicNCColumns(wTArr);
+        const hasAsbl = asblCols !== "0";
 
         let conditions = ["categories NOT IN ('Not to considered')", "cost_revenue = 'Cost'"];
         let baseParams = [];
@@ -1541,9 +1582,12 @@ exports.getNegativeLOATable = async (req, res) => {
         applyDashboardFilters(req.query, conditions, baseParams);
 
         const whereSql = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
-        const sql = getDashboardTableSQL('bu, customer, loa_id, loa_name', showAsbl).replace('{{WHERE_CLAUSE}}', whereSql) + " HAVING ROUND(" + (showAsbl ? 'SUM(type_asbl)' : '0.00') + " - SUM(type_ptd + type_oc + type_nc), 2) < 0 ORDER BY eac_vs_asbl ASC";
+        const varCondition = hasAsbl ? '(SUM(cat_asbl) - SUM(cat_ptd + cat_oc + cat_nc))' : '(0 - SUM(cat_ptd + cat_oc + cat_nc))';
 
-        const [rows] = await db.query(sql, [...baseParams, wT, wT, wT]);
+        const sql = getDashboardTableSQL('bu, customer, loa_id, loa_name', asblCols, ncCols).replace('{{WHERE_CLAUSE}}', whereSql) + 
+                    ` HAVING ${varCondition} < 0 ORDER BY eac_vs_asbl ASC`;
+
+        const [rows] = await db.query(sql, baseParams);
         res.json(rows);
     } catch (error) { res.status(500).json({ error: error.message }); }
 };
@@ -1551,8 +1595,10 @@ exports.getNegativeLOATable = async (req, res) => {
 exports.getCostViewTable = async (req, res) => {
     try {
         const { type, allowedCustomers } = req.query;
-        let wT = req.query.wbs_type || 'All';
-        const showAsbl = wT !== 'All' && wT.toLowerCase() !== 'warranty/other';
+        const wTArr = getValArray(req.query.wbs_type, req.query, 'wbs_type');
+        
+        const asblCols = getDynamicSumColumns(wTArr, 'asbl');
+        const ncCols = getDynamicNCColumns(wTArr);
 
         let conditions = ["categories NOT IN ('Not to considered')", "cost_revenue = 'Cost'"];
         let baseParams = [];
@@ -1560,9 +1606,9 @@ exports.getCostViewTable = async (req, res) => {
         applyDashboardFilters(req.query, conditions, baseParams);
         
         const whereSql = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
-        const sql = getDashboardTableSQL('bu, customer, loa_id, loa_name', showAsbl).replace('{{WHERE_CLAUSE}}', whereSql) + " ORDER BY asbl DESC";
+        const sql = getDashboardTableSQL('bu, customer, loa_id, loa_name', asblCols, ncCols).replace('{{WHERE_CLAUSE}}', whereSql) + " ORDER BY asbl DESC";
 
-        const [rows] = await db.query(sql, [...baseParams, wT, wT, wT]);
+        const [rows] = await db.query(sql, baseParams); 
         res.json(rows);
     } catch (error) { res.status(500).json({ error: error.message }); }
 };
@@ -1570,8 +1616,10 @@ exports.getCostViewTable = async (req, res) => {
 exports.getCustomerViewTable = async (req, res) => {
     try {
         const { type, allowedCustomers } = req.query;
-        let wT = req.query.wbs_type || 'All';
-        const showAsbl = wT !== 'All' && wT.toLowerCase() !== 'warranty/other';
+        const wTArr = getValArray(req.query.wbs_type, req.query, 'wbs_type');
+        
+        const asblCols = getDynamicSumColumns(wTArr, 'asbl');
+        const ncCols = getDynamicNCColumns(wTArr);
 
         let conditions = ["categories NOT IN ('Not to considered')", "cost_revenue = 'Cost'"];
         let baseParams = [];
@@ -1579,9 +1627,9 @@ exports.getCustomerViewTable = async (req, res) => {
         applyDashboardFilters(req.query, conditions, baseParams);
         
         const whereSql = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
-        const sql = getDashboardTableSQL('customer', showAsbl).replace('{{WHERE_CLAUSE}}', whereSql) + " ORDER BY asbl DESC";
+        const sql = getDashboardTableSQL('customer', asblCols, ncCols).replace('{{WHERE_CLAUSE}}', whereSql) + " ORDER BY asbl DESC";
 
-        const [rows] = await db.query(sql, [...baseParams, wT, wT, wT]);
+        const [rows] = await db.query(sql, baseParams); 
         res.json(rows);
     } catch (error) { res.status(500).json({ error: error.message }); }
 };
@@ -1589,8 +1637,10 @@ exports.getCustomerViewTable = async (req, res) => {
 exports.getBuCustomerViewTable = async (req, res) => {
     try {
         const { type, allowedCustomers } = req.query;
-        let wT = req.query.wbs_type || 'All';
-        const showAsbl = wT !== 'All' && wT.toLowerCase() !== 'warranty/other';
+        const wTArr = getValArray(req.query.wbs_type, req.query, 'wbs_type');
+        
+        const asblCols = getDynamicSumColumns(wTArr, 'asbl');
+        const ncCols = getDynamicNCColumns(wTArr);
 
         let conditions = ["categories NOT IN ('Not to considered')", "cost_revenue = 'Cost'"];
         let baseParams = [];
@@ -1598,27 +1648,9 @@ exports.getBuCustomerViewTable = async (req, res) => {
         applyDashboardFilters(req.query, conditions, baseParams);
         
         const whereSql = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
-        const sql = `
-            SELECT bu, customer,
-                   ${showAsbl ? 'ROUND(SUM(type_asbl), 2)' : "'0.00'"} as asbl,
-                   ROUND(SUM(type_asbl_loa), 2) as asbl_loa,
-                   ROUND(SUM(type_ptd), 2) as ptd,
-                   ROUND(SUM(type_oc), 2) as open_commitment,
-                   ROUND(SUM(type_nc), 2) as non_committed,
-                   ROUND(SUM(type_ptd + type_oc + type_nc), 2) as eac,
-                   ROUND(${showAsbl ? 'SUM(type_asbl)' : '0.00'} - SUM(type_ptd + type_oc + type_nc), 2) as eac_vs_asbl
-            FROM (
-                SELECT bu, customer, loa_id, categories, wbs_type,
-                       MAX(asbl) as type_asbl, MAX(asbl_loa) as type_asbl_loa,
-                       SUM(ptd) as type_ptd, MAX(open_commitment_KEUR) as type_oc, MAX(non_committed_editable) as type_nc
-                FROM final_dashboard_table ${whereSql}
-                GROUP BY bu, customer, loa_id, categories, wbs_type
-            ) t 
-            WHERE (? = 'All' OR ? = '' OR wbs_type = ?)
-            GROUP BY bu, customer 
-            ORDER BY bu ASC, asbl DESC`;
+        const sql = getDashboardTableSQL('bu, customer', asblCols, ncCols).replace('{{WHERE_CLAUSE}}', whereSql) + " ORDER BY bu ASC, asbl DESC";
 
-        const [rows] = await db.query(sql, [...baseParams, wT, wT, wT]);
+        const [rows] = await db.query(sql, baseParams); 
         res.json(rows);
     } catch (error) { res.status(500).json({ error: error.message }); }
 };
@@ -1626,8 +1658,10 @@ exports.getBuCustomerViewTable = async (req, res) => {
 exports.getCustomerBuViewTable = async (req, res) => {
     try {
         const { type, allowedCustomers } = req.query;
-        let wT = req.query.wbs_type || 'All';
-        const showAsbl = wT !== 'All' && wT.toLowerCase() !== 'warranty/other';
+        const wTArr = getValArray(req.query.wbs_type, req.query, 'wbs_type');
+        
+        const asblCols = getDynamicSumColumns(wTArr, 'asbl');
+        const ncCols = getDynamicNCColumns(wTArr);
 
         let conditions = ["categories NOT IN ('Not to considered')", "cost_revenue = 'Cost'"];
         let baseParams = [];
@@ -1635,9 +1669,9 @@ exports.getCustomerBuViewTable = async (req, res) => {
         applyDashboardFilters(req.query, conditions, baseParams);
         
         const whereSql = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
-        const sql = getDashboardTableSQL('customer, bu', showAsbl).replace('{{WHERE_CLAUSE}}', whereSql) + " ORDER BY customer ASC";
+        const sql = getDashboardTableSQL('customer, bu', asblCols, ncCols).replace('{{WHERE_CLAUSE}}', whereSql) + " ORDER BY customer ASC";
 
-        const [rows] = await db.query(sql, [...baseParams, wT, wT, wT]);
+        const [rows] = await db.query(sql, baseParams); 
         res.json(rows);
     } catch (error) { res.status(500).json({ error: error.message }); }
 };
@@ -1645,8 +1679,10 @@ exports.getCustomerBuViewTable = async (req, res) => {
 exports.getCustomerBuLoaViewTable = async (req, res) => {
     try {
         const { type, allowedCustomers } = req.query;
-        let wT = req.query.wbs_type || 'All';
-        const showAsbl = wT !== 'All' && wT.toLowerCase() !== 'warranty/other';
+        const wTArr = getValArray(req.query.wbs_type, req.query, 'wbs_type');
+        
+        const asblCols = getDynamicSumColumns(wTArr, 'asbl');
+        const ncCols = getDynamicNCColumns(wTArr);
 
         let conditions = ["categories NOT IN ('Not to considered')", "cost_revenue = 'Cost'"];
         let baseParams = [];
@@ -1654,28 +1690,9 @@ exports.getCustomerBuLoaViewTable = async (req, res) => {
         applyDashboardFilters(req.query, conditions, baseParams);
         
         const whereSql = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
-        
-        const sql = `
-            SELECT customer, bu, loa_id, loa_name,
-                   ${showAsbl ? 'ROUND(SUM(type_asbl), 2)' : "'0.00'"} as asbl,
-                   ROUND(SUM(type_asbl_loa), 2) as asbl_loa,
-                   ROUND(SUM(type_ptd), 2) as ptd,
-                   ROUND(SUM(type_oc), 2) as open_commitment,
-                   ROUND(SUM(type_nc), 2) as non_committed,
-                   ROUND(SUM(type_ptd + type_oc + type_nc), 2) as eac,
-                   ROUND(${showAsbl ? 'SUM(type_asbl)' : '0.00'} - SUM(type_ptd + type_oc + type_nc), 2) as eac_vs_asbl
-            FROM (
-                SELECT customer, bu, loa_id, loa_name, categories, wbs_type,
-                       MAX(asbl) as type_asbl, MAX(asbl_loa) as type_asbl_loa,
-                       SUM(ptd) as type_ptd, MAX(open_commitment_KEUR) as type_oc, MAX(non_committed_editable) as type_nc
-                FROM final_dashboard_table ${whereSql}
-                GROUP BY customer, bu, loa_id, loa_name, categories, wbs_type
-            ) t 
-            WHERE (? = 'All' OR ? = '' OR wbs_type = ?)
-            GROUP BY customer, bu, loa_id, loa_name 
-            ORDER BY customer ASC`;
+        const sql = getDashboardTableSQL('customer, bu, loa_name, loa_id', asblCols, ncCols).replace('{{WHERE_CLAUSE}}', whereSql) + " ORDER BY customer ASC";
 
-        const [rows] = await db.query(sql, [...baseParams, wT, wT, wT]);
+        const [rows] = await db.query(sql, baseParams); 
         res.json(rows);
     } catch (error) { res.status(500).json({ error: error.message }); }
 };
