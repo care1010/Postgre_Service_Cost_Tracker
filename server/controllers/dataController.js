@@ -28,56 +28,8 @@ const applyRLS = (type, allowedCustomers, conditions, params) => {
     conditions.push(`1=0`);
 };
 
-// ==============================
-// COMMON Dashboard Filters FUNCTION
-// ==============================
-const applyDashboardFilters = (query, conditions, params) => {
-    const { bu, years, periods, customers, loa_names, active_inactive, category_type } = query;
 
-    if (!category_type) {
-        conditions.push(`categories <> 'Local Materials'`);
-    } else {
-        let catArr = Array.isArray(category_type) ? category_type : category_type.split(',').map(v => v.trim());
-        const hasAll = catArr.includes('All');
-        const hasLM = catArr.includes('Local Materials');
 
-        if (hasAll && !hasLM) conditions.push(`categories <> 'Local Materials'`);
-        else if (!hasAll && hasLM) conditions.push(`categories = 'Local Materials'`);
-        else if (!hasAll && !hasLM) conditions.push(`categories <> 'Local Materials'`);
-    }
-
-    if (bu) {
-        const buArray = bu.split(',').map(b => b.trim()).filter(Boolean);
-        if (buArray.length > 0) {
-            conditions.push(`bu IN (?)`);
-            params.push(buArray);
-        }
-    }
-    if (years) {
-        const yearArray = years.split(',');
-        conditions.push(`(${yearArray.map(() => "period LIKE ?").join(' OR ')})`);
-        params.push(...yearArray.map(y => `${y}-%`));
-    }
-    if (periods) {
-        const periodArray = periods.split(',');
-        conditions.push(`period IN (?)`);
-        params.push(periodArray);
-    }
-    if (customers) {
-        const customerArray = customers.split(',');
-        conditions.push(`customer IN (?)`);
-        params.push(customerArray);
-    }
-    if (loa_names) {
-        const loaArray = loa_names.split(',');
-        conditions.push(`loa_name IN (?)`);
-        params.push(loaArray);
-    }
-    if (active_inactive) {
-        conditions.push(`active_inactive = ?`);
-        params.push(active_inactive);
-    }
-};
 
 const getValArray = (val, reqQuery = null, keyName = null) => {
     let targetVal = val;
@@ -162,11 +114,13 @@ exports.getFilterOptions = async (req, res) => {
             });
 
             const dbColName = columnMapping[targetField];
+            // 🔥 LOGIC: Sort period in DESC order, others in ASC
+            const sortOrder = (targetField === 'period') ? 'DESC' : 'ASC';
             const sql = `SELECT DISTINCT "${dbColName}" as value 
                          FROM final_dashboard_table 
                          WHERE ${conditions.join(' AND ')} 
                          AND "${dbColName}" IS NOT NULL AND "${dbColName}" <> ''
-                         ORDER BY 1 ASC`;
+                         ORDER BY 1 ${sortOrder}`;
 
             const [rows] = await db.query(sql, filterValues);
             return rows.map(r => r.value);
@@ -1224,12 +1178,14 @@ exports.getDashboardFilters = async (req, res) => {
         const { type, allowedCustomers } = req.query;
 
         const buildConditions = (excludeKey) => {
-            const { years, periods, customers, active_inactive, loa_names, bu, wbs_type, category_type } = req.query;
+            const { years, periods, customers, active_inactive, loa_names, loa_ids, bu, wbs_type, wbs, wbs_description, category_type } = req.query;
+            
             let conditions = ["customer IS NOT NULL", "loa_name IS NOT NULL"];
             let params = [];
 
             applyRLS(type, allowedCustomers, conditions, params);
 
+            // Category Type Logic
             if (!category_type) {
                 conditions.push(`categories <> 'Local Materials'`);
             } else {
@@ -1243,55 +1199,56 @@ exports.getDashboardFilters = async (req, res) => {
 
             if (bu && excludeKey !== 'bus') {
                 const buArray = bu.split(',').filter(Boolean);
-                if (buArray.length > 0) {
-                    conditions.push(`bu IN (?)`);
-                    params.push(buArray);
-                }
+                if (buArray.length > 0) { conditions.push(`bu IN (?)`); params.push(buArray); }
             }
             if (wbs_type && wbs_type !== 'All' && excludeKey !== 'wbs_type') {
-                conditions.push(`wbs_type = ?`);
-                params.push(wbs_type);
+                conditions.push(`wbs_type = ?`); params.push(wbs_type);
+            }
+            if (loa_ids && excludeKey !== 'loa_ids') {
+                const loaIdArray = loa_ids.split(',').filter(Boolean);
+                if (loaIdArray.length > 0) { conditions.push(`loa_id IN (?)`); params.push(loaIdArray); }
+            }
+            // 🔥 WBS Filter Logic
+            if (wbs && excludeKey !== 'wbs') {
+                const wbsArray = wbs.split(',').filter(Boolean);
+                if (wbsArray.length > 0) { conditions.push(`wbs_element_single IN (?)`); params.push(wbsArray); }
+            }
+            // 🔥 WBS Description Filter Logic
+            if (wbs_description && excludeKey !== 'wbs_description') {
+                const descArray = wbs_description.split(',').filter(Boolean);
+                if (descArray.length > 0) { conditions.push(`wbs_description IN (?)`); params.push(descArray); }
             }
             if (years && excludeKey !== 'years') {
                 const yearArray = years.split(',').filter(Boolean);
                 if (yearArray.length > 0) {
                     conditions.push(`(${yearArray.map(() => "period LIKE ?").join(' OR ')})`);
-                    params.push(...yearArray.map(y => `${y}-%`));
+                    params.push(...yearArray.map(y => `${y.trim()}-%`));
                 }
             }
             if (periods && excludeKey !== 'periods') {
                 const periodArray = periods.split(',').filter(Boolean);
-                if (periodArray.length > 0) {
-                    conditions.push(`period IN (?)`);
-                    params.push(periodArray);
-                }
+                if (periodArray.length > 0) { conditions.push(`period IN (?)`); params.push(periodArray); }
             }
             if (customers && excludeKey !== 'customers') {
                 const customerArray = customers.split(',').filter(Boolean);
-                if (customerArray.length > 0) {
-                    conditions.push(`customer IN (?)`);
-                    params.push(customerArray);
-                }
+                if (customerArray.length > 0) { conditions.push(`customer IN (?)`); params.push(customerArray); }
             }
             if (loa_names && excludeKey !== 'loa_names') {
                 const loaArray = loa_names.split(',').filter(Boolean);
-                if (loaArray.length > 0) {
-                    conditions.push(`loa_name IN (?)`);
-                    params.push(loaArray);
-                }
+                if (loaArray.length > 0) { conditions.push(`loa_name IN (?)`); params.push(loaArray); }
             }
             if (active_inactive) {
-                conditions.push(`active_inactive = ?`);
-                params.push(active_inactive);
+                conditions.push(`active_inactive = ?`); params.push(active_inactive);
             }
             return { whereSql: conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '', params };
         };
 
+        // Queries execution
         const buQ = buildConditions('bus');
         const [buRows] = await db.query(`SELECT DISTINCT bu FROM final_dashboard_table ${buQ.whereSql} ORDER BY bu ASC`, buQ.params);
 
-        const wbsQ = buildConditions('wbs_type');
-        const [wbsRows] = await db.query(`SELECT DISTINCT wbs_type FROM final_dashboard_table ${wbsQ.whereSql} AND wbs_type IS NOT NULL ORDER BY wbs_type ASC`, wbsQ.params);
+        const wbsTypeQ = buildConditions('wbs_type');
+        const [wbsTypeRows] = await db.query(`SELECT DISTINCT wbs_type FROM final_dashboard_table ${wbsTypeQ.whereSql} AND wbs_type IS NOT NULL ORDER BY wbs_type ASC`, wbsTypeQ.params);
 
         const custQ = buildConditions('customers');
         const [customerRows] = await db.query(`SELECT DISTINCT customer FROM final_dashboard_table ${custQ.whereSql} ORDER BY customer ASC`, custQ.params);
@@ -1299,22 +1256,37 @@ exports.getDashboardFilters = async (req, res) => {
         const perQ = buildConditions('periods');
         const [periodRows] = await db.query(`SELECT DISTINCT period FROM final_dashboard_table ${perQ.whereSql} AND period IS NOT NULL ORDER BY period DESC`, perQ.params);
 
+        const loaIdQ = buildConditions('loa_ids');
+        const [loaIdRows] = await db.query(`SELECT DISTINCT loa_id FROM final_dashboard_table ${loaIdQ.whereSql} ORDER BY loa_id ASC`, loaIdQ.params);
+
         const loaQ = buildConditions('loa_names');
         const [loaRows] = await db.query(`SELECT DISTINCT loa_name FROM final_dashboard_table ${loaQ.whereSql} ORDER BY loa_name ASC`, loaQ.params);
+
+        // 🔥 NEW: Fetch WBS (single_wbs)
+        const wbsValQ = buildConditions('wbs');
+        const [wbsRows] = await db.query(`SELECT DISTINCT wbs_element_single as wbs FROM final_dashboard_table ${wbsValQ.whereSql} AND wbs_element_single IS NOT NULL ORDER BY 1 ASC`, wbsValQ.params);
+
+        // 🔥 NEW: Fetch WBS Description
+        const wbsDescQ = buildConditions('wbs_description');
+        const [wbsDescRows] = await db.query(`SELECT DISTINCT wbs_description FROM final_dashboard_table ${wbsDescQ.whereSql} AND wbs_description IS NOT NULL ORDER BY 1 ASC`, wbsDescQ.params);
 
         const yearsList = [...new Set(periodRows.map(r => r.period?.split('-')[0]))].filter(Boolean).sort((a,b)=>b-a);
 
         res.status(200).json({
             category_types: ['All', 'Local Materials'],
             bus: buRows.map(r => r.bu),
-            wbs_types: wbsRows.map(r => r.wbs_type), 
+            wbs_types: wbsTypeRows.map(r => r.wbs_type), 
             years: yearsList,
             periods: periodRows.map(r => r.period),
             customers: customerRows.map(r => r.customer),
-            loa_names: loaRows.map(r => r.loa_name)
+            loa_ids: loaIdRows.map(r => r.loa_id),
+            loa_names: loaRows.map(r => r.loa_name),
+            wbs: wbsRows.map(r => r.wbs), // 🔥 Added
+            wbs_descriptions: wbsDescRows.map(r => r.wbs_description) // 🔥 Added
         });
 
     } catch (error) { 
+        console.error("Dashboard Filters Error:", error);
         res.status(500).json({ error: error.message }); 
     }
 };
@@ -1380,6 +1352,94 @@ const getDashboardAnalyticsSQL = (groupByCol, asblCols, ncCols) => {
         GROUP BY ${groupByCol}
         ORDER BY ${groupByCol} ASC
     `;
+};
+
+// ==============================
+// COMMON Dashboard Filters FUNCTION (Fixed for WBS)
+// ==============================
+const applyDashboardFilters = (query, conditions, params) => {
+    // 🔥 Added wbs, wbs_description and wbs_type to destructuring
+    const { bu, years, periods, customers, loa_names, loa_ids, active_inactive, category_type, wbs, wbs_description, wbs_type } = query;
+
+    // 1. Category Type Logic (Existing - No Change)
+    if (!category_type) {
+        conditions.push(`categories <> 'Local Materials'`);
+    } else {
+        let catArr = Array.isArray(category_type) ? category_type : category_type.split(',').map(v => v.trim());
+        const hasAll = catArr.includes('All');
+        const hasLM = catArr.includes('Local Materials');
+        if (hasAll && !hasLM) conditions.push(`categories <> 'Local Materials'`);
+        else if (!hasAll && hasLM) conditions.push(`categories = 'Local Materials'`);
+        else if (!hasAll && !hasLM) conditions.push(`categories <> 'Local Materials'`);
+    }
+
+    // 2. BU Filter
+    if (bu) {
+        const buArray = bu.split(',').map(b => b.trim()).filter(Boolean);
+        if (buArray.length > 0) {
+            conditions.push(`bu IN (?)`);
+            params.push(buArray);
+        }
+    }
+
+    // 3. 🔥 NEW: WBS Type Filter (Mandatory impact on ASBL)
+    if (wbs_type && wbs_type !== 'All') {
+        conditions.push(`wbs_type = ?`);
+        params.push(wbs_type);
+    }
+
+    // 4. 🔥 NEW: WBS (single_wbs) Filter
+    if (wbs) {
+        const wbsArray = wbs.split(',').map(w => w.trim()).filter(Boolean);
+        if (wbsArray.length > 0) {
+            conditions.push(`wbs_element_single IN (?)`);
+            params.push(wbsArray);
+        }
+    }
+
+    // 5. 🔥 NEW: WBS Description Filter
+    if (wbs_description) {
+        const descArray = wbs_description.split(',').map(d => d.trim()).filter(Boolean);
+        if (descArray.length > 0) {
+            conditions.push(`wbs_description IN (?)`);
+            params.push(descArray);
+        }
+    }
+
+    // 6. LOA ID Filter (If passed)
+    if (loa_ids) {
+        const loaIdArray = loa_ids.split(',').map(l => l.trim()).filter(Boolean);
+        if (loaIdArray.length > 0) {
+            conditions.push(`loa_id IN (?)`);
+            params.push(loaIdArray);
+        }
+    }
+
+    // 7. Standard Filters (Existing - No Change)
+    if (years) {
+        const yearArray = years.split(',');
+        conditions.push(`(${yearArray.map(() => "period LIKE ?").join(' OR ')})`);
+        params.push(...yearArray.map(y => `${y}-%`));
+    }
+    if (periods) {
+        const periodArray = periods.split(',');
+        conditions.push(`period IN (?)`);
+        params.push(periodArray);
+    }
+    if (customers) {
+        const customerArray = customers.split(',');
+        conditions.push(`customer IN (?)`);
+        params.push(customerArray);
+    }
+    if (loa_names) {
+        const loaArray = loa_names.split(',');
+        conditions.push(`loa_name IN (?)`);
+        params.push(loaArray);
+    }
+    if (active_inactive) {
+        conditions.push(`active_inactive = ?`);
+        params.push(active_inactive);
+    }
 };
 
 // ==========================================

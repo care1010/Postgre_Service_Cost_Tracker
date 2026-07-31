@@ -76,7 +76,7 @@ const Dashboard = ({ user }) => {
             try {
                 const params = {
                     bu: filters.bu.join(','), periods: filters.period.join(','), customers: filters.customer.join(','),
-                    loa_names: filters.loa_name.join(','), active_inactive: filters.active_inactive.join(','),
+                    loa_names: filters.loa_name.join(','), loa_ids: filters.loa_id.join(','), active_inactive: filters.active_inactive.join(','),
                     type: user?.type, wbs_type: filters.wbs_type.join(','), category_type: filters.category_type.join(','),
                     wbs: filters.wbs.join(','), wbs_description: filters.wbs_description.join(','), // 🔥 Send WBS states to API
                     allowedCustomers: allowedCustomers.join(',')
@@ -85,7 +85,7 @@ const Dashboard = ({ user }) => {
                 
                 setFilterOptions({
                     bu: res.data.bus || [], customer: res.data.customers || [], loa_name: res.data.loa_names || [],
-                    loa_id: res.data.loa_names || [], period: res.data.periods || [], wbs_type: res.data.wbs_types || [],
+                    loa_id: res.data.loa_ids || [], period: res.data.periods || [], wbs_type: res.data.wbs_types || [],
                     wbs: res.data.wbs || [], wbs_description: res.data.wbs_descriptions || [], // 🔥 Map WBS data to filter bar
                     category_type: res.data.category_types || ['All', 'Local Materials'], active_inactive: ['Active', 'Inactive']
                 });
@@ -100,7 +100,7 @@ const Dashboard = ({ user }) => {
                 setLoading(true);
                 const commonParams = {
                     bu: filters.bu.join(','), periods: filters.period.join(','), customers: filters.customer.join(','),
-                    loa_names: filters.loa_name.join(','), category_type: filters.category_type.join(','),
+                    loa_names: filters.loa_name.join(','), loa_ids: filters.loa_id.join(','), category_type: filters.category_type.join(','),
                     active_inactive: filters.active_inactive.join(','), showAll: showAllLoa, type: user?.type,
                     wbs_type: filters.wbs_type.join(','), wbs: filters.wbs.join(','), wbs_description: filters.wbs_description.join(','), // 🔥 Apply WBS Filters
                     allowedCustomers: allowedCustomers.join(',')
