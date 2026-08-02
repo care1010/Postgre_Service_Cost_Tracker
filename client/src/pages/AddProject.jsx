@@ -1,18 +1,45 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import Swal from 'sweetalert2';
 import { HiOutlinePlus, HiOutlineTrash, HiOutlineTable, HiOutlineClipboard, HiOutlineDocumentDownload, HiOutlineUpload } from "react-icons/hi";
 
-const AddProject = () => {
+const AddProject = ({ user }) => {
     const [mode, setMode] = useState('new'); 
-    const [inputMethod, setInputMethod] = useState('paste'); // 'paste', 'file', or 'grid'
+    const [inputMethod, setInputMethod] = useState('paste'); 
     const [pasteData, setPasteData] = useState('');
     const [selectedFile, setSelectedFile] = useState(null);
     const [loading, setLoading] = useState(false);
 
-    // 🔥 NEW: State for Data Grid
+    // 🔥 NEW: States for Dropdown Options
+    const [buOptions, setBuOptions] = useState(['IP', 'Optics', 'FN']);
+    const [customerOptions, setCustomerOptions] = useState([]);
+
     const initialRow = { bd: '', customer: '', loa_id: '', loa_name: '', wbs_type: '', wbs: '', wbs_desc: '' };
     const [gridData, setGridData] = useState([{ ...initialRow }]);
+
+    // 🔥 NEW: Fetch existing BUs and Customers from DB on mount
+    useEffect(() => {
+    const fetchDropdownData = async () => {
+        try {
+            // 🔥 IMPORTANT: Join by '|||' to match your updated RLS logic
+            const customersStr = user?.allowedCustomers ? user.allowedCustomers.join('|||') : '';
+            
+            const params = new URLSearchParams({
+                type: user?.type || 'user',
+                allowedCustomers: customersStr
+            });
+
+            // Calling the new dedicated endpoint
+            const res = await axios.get(`${process.env.REACT_APP_API_URL}/api/data/add-project-options?${params.toString()}`);
+            
+            if (res.data.bus) setBuOptions(res.data.bus);
+            if (res.data.customers) setCustomerOptions(res.data.customers); // 🔥 Corrected key
+        } catch (err) {
+            console.error("Error fetching dropdown options:", err);
+        }
+    };
+    if (user) fetchDropdownData();
+}, [user]);
 
     const handleDownloadTemplate = () => {
         window.location.href = `${process.env.REACT_APP_API_URL}/api/data/download-project-template`;
@@ -22,7 +49,6 @@ const AddProject = () => {
         setSelectedFile(e.target.files[0]);
     };
 
-    // 🔥 Grid Handlers
     const addRow = () => setGridData([...gridData, { ...initialRow }]);
     const deleteRow = (index) => {
         const updated = gridData.filter((_, i) => i !== index);
@@ -36,9 +62,6 @@ const AddProject = () => {
 
     const handleProcess = async () => {
         setLoading(true);
-        let finalDataGrid = [];
-
-        // Loading Overlay
         Swal.fire({
             title: mode === 'new' ? 'Saving Data...' : 'Updating Project...',
             html: 'Please wait while we sync the database.',
@@ -61,11 +84,8 @@ const AddProject = () => {
                 handleSuccess(res.data.message);
             } 
             else if (inputMethod === 'grid') {
-                // 🔥 Convert Grid to 2D Array (Backend format)
                 const headers = ['BUSINESS DIVISION (BD)', 'CT NAME (REPORTED CUST)', 'OPPORTUNITY CODE', 'PROJECT DESCRIPTION', 'WBS TYPE', 'WBS', 'WBS DESCRIPTION'];
                 const rows = gridData.map(r => [r.bd, r.customer, r.loa_id, r.loa_name, r.wbs_type, r.wbs, r.wbs_desc]);
-                
-                // Filter out completely empty rows
                 const filteredRows = rows.filter(row => row.some(cell => cell.trim() !== ''));
                 if (filteredRows.length === 0) throw new Error("Table is empty!");
 
@@ -83,7 +103,7 @@ const AddProject = () => {
     };
 
     const handleSuccess = (msg) => {
-        Swal.fire({ icon: 'success', title: 'Success', text: msg });
+        Swal.fire({ icon: 'success', title: 'data Updated Success', text: msg });
         setPasteData('');
         setSelectedFile(null);
         setGridData([{ ...initialRow }]);
@@ -122,7 +142,6 @@ const AddProject = () => {
                     ))}
                 </div>
 
-                {/* DYNAMIC CONTENT AREA */}
                 <div className="p-8">
                     {inputMethod === 'paste' && (
                         <textarea className="w-full h-80 p-6 rounded-[2rem] border border-slate-200 bg-slate-50 font-mono text-sm outline-none focus:border-blue-500 transition-all resize-none" placeholder="Paste tab-separated data here..." value={pasteData} onChange={(e) => setPasteData(e.target.value)} />
@@ -154,9 +173,27 @@ const AddProject = () => {
                                 <tbody className="divide-y divide-slate-100">
                                     {gridData.map((row, idx) => (
                                         <tr key={idx} className="hover:bg-blue-50/30 transition-colors">
-                                            <td className="p-1"><input className="w-full p-2 bg-transparent outline-none focus:bg-white" value={row.bd} onChange={(e) => handleGridChange(idx, 'bd', e.target.value)} placeholder="e.g. IP" /></td>
-                                            <td className="p-1"><input className="w-full p-2 bg-transparent outline-none focus:bg-white" value={row.customer} onChange={(e) => handleGridChange(idx, 'customer', e.target.value)} placeholder="e.g. Bharti" /></td>
-                                            <td className="p-1"><input className="w-full p-2 bg-transparent outline-none focus:bg-white font-bold text-blue-600" value={row.loa_id} onChange={(e) => handleGridChange(idx, 'loa_id', e.target.value)} placeholder="24.IN.XXXX" /></td>
+                                            {/* 🔥 BU Dropdown */}
+                                            <td className="p-1">
+                                                <select className="w-full p-2 bg-transparent outline-none cursor-pointer font-semibold text-slate-700" value={row.bd} onChange={(e) => handleGridChange(idx, 'bd', e.target.value)}>
+                                                    <option value="">Select BU</option>
+                                                    {buOptions.map(bu => <option key={bu} value={bu}>{bu}</option>)}
+                                                </select>
+                                            </td>
+                                            {/* 🔥 Customer Dropdown */}
+                                            <td className="p-1">
+                                                <select 
+                                                    className="w-full p-2 bg-transparent outline-none cursor-pointer font-semibold text-slate-700 border-b border-transparent focus:border-blue-400" 
+                                                    value={row.customer} 
+                                                    onChange={(e) => handleGridChange(idx, 'customer', e.target.value)}
+                                                >
+                                                    <option value="">Select Customer</option>
+                                                    {customerOptions.map(cust => (
+                                                        <option key={cust} value={cust}>{cust}</option>
+                                                    ))}
+                                                </select>
+                                            </td>
+                                            <td className="p-1"><input className="w-full p-2 bg-transparent outline-none focus:bg-white font-bold text-blue-600 border-b border-transparent focus:border-blue-400" value={row.loa_id} onChange={(e) => handleGridChange(idx, 'loa_id', e.target.value)} placeholder="24.IN.XXXX" /></td>
                                             <td className="p-1"><input className="w-full p-2 bg-transparent outline-none focus:bg-white" value={row.loa_name} onChange={(e) => handleGridChange(idx, 'loa_name', e.target.value)} placeholder="Project XYZ" /></td>
                                             <td className="p-1">
                                                 <select className="w-full p-2 bg-transparent outline-none cursor-pointer" value={row.wbs_type} onChange={(e) => handleGridChange(idx, 'wbs_type', e.target.value)}>
@@ -178,7 +215,6 @@ const AddProject = () => {
                     )}
                 </div>
 
-                {/* FOOTER ACTIONS */}
                 <div className="p-8 bg-slate-50/50 border-t border-slate-100 flex justify-center gap-6">
                     <button onClick={handleProcess} disabled={loading} className={`px-12 py-4 rounded-2xl font-bold text-sm text-white shadow-xl transition-all hover:scale-105 active:scale-95 disabled:opacity-50 ${mode === 'new' ? 'bg-blue-600 shadow-blue-100' : 'bg-indigo-600 shadow-indigo-100'}`}>
                         {mode === 'new' ? "Save New Project" : "Add WBS in Existing LOA"}

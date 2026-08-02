@@ -13,10 +13,42 @@ import MyAccess from './pages/MyAccess';
 import Logs from './pages/Logs';
 import ERPResource from './pages/ERPResource';
 
+// ============================================================
+// DEFAULT FILTERS — ek jagah define karo, dono pages use karein
+// ============================================================
+const DEFAULT_FILTERS = {
+  category_type: ['All'],
+  bu: [],
+  customer: [],
+  loa_id: [],
+  loa_name: [],
+  wbs_type: [],
+  wbs: [],
+  wbs_description: [],
+  active_inactive: ['Active'],
+  period: []
+};
+
 function App() {
   const [user, setUser] = useState(null);
   const [activeTab, setActiveTab] = useState('summary');
   const location = useLocation(); 
+
+  // ============================================================
+  // 🔥 SHARED FILTERS STATE — lifted up from SummaryView & Dashboard
+  // Dono pages ab ek hi filters state share karenge (Power BI style!)
+  // ============================================================
+  const [sharedFilters, setSharedFilters] = useState(DEFAULT_FILTERS);
+
+  // Single handler — dono pages ko pass hoga
+  const handleFilterChange = (name, value) => {
+    setSharedFilters(prev => ({ ...prev, [name]: value }));
+  };
+
+  // Reset handler — DEFAULT_FILTERS pe wapas le jaata hai
+  const handleResetFilters = () => {
+    setSharedFilters(DEFAULT_FILTERS);
+  };
 
   useEffect(() => {
     const savedUser = localStorage.getItem('user');
@@ -36,6 +68,7 @@ function App() {
     localStorage.removeItem('user');
     setUser(null);
     setActiveTab('summary');
+    setSharedFilters(DEFAULT_FILTERS); // logout pe filters bhi reset
   };
 
   if (!user) {
@@ -64,12 +97,25 @@ function App() {
         <Routes>
           <Route path="/" element={
             <>
-              {/* 🟢 LAZY TAB RENDERING: Loads ONLY the active tab! Drops initial server queries from 12 to 2! */}
-              {activeTab === 'summary' && <SummaryView user={user} />}
+              {activeTab === 'summary' && (
+                <SummaryView
+                  user={user}
+                  filters={sharedFilters}
+                  onFilterChange={handleFilterChange}
+                  onResetFilters={handleResetFilters}
+                />
+              )}
               {activeTab === 'add-project' && <AddProject user={user} />}
               {activeTab === 'ptd' && <PtdAutomation />}
               {activeTab === 'asbl' && <AsblAutomation user={user} />}
-              {activeTab === 'dashboard' && <Dashboard user={user} />}
+              {activeTab === 'dashboard' && (
+                <Dashboard
+                  user={user}
+                  filters={sharedFilters}
+                  onFilterChange={handleFilterChange}
+                  onResetFilters={handleResetFilters}
+                />
+              )}
               {activeTab === 'erp_resource' && <ERPResource />}
               {activeTab === 'admin' && (user?.type === 'super_admin' || user?.type === 'admin') && (
                 <AdminPanel user={user} onBack={() => setActiveTab('summary')} />

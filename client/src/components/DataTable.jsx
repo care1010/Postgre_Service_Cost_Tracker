@@ -126,7 +126,10 @@ const DataTable = ({ title, columns, apiUrl, filters, onKpiUpdate, showSaveButto
             const oc = parseFloat($row.find('td:nth-child(10)').text().replace(/,/g, '')) || 0;
             const nc = parseFloat($input.val()) || 0;
             const newEac = ptd + oc + nc;
-            const newVar = asbl === null ? '' : (asbl - newEac);
+            
+            // Allow variance calculation even if ASBL is 0
+            const actualAsbl = asbl === null ? 0 : asbl;
+            const newVar = actualAsbl - newEac;
 
             $row.find(`td:nth-child(${12 + offset})`).text(fmt(newEac));
             $row.find(`td:nth-child(${13 + offset})`).text(fmt(newVar));
@@ -135,7 +138,7 @@ const DataTable = ({ title, columns, apiUrl, filters, onKpiUpdate, showSaveButto
         dataTableInstance.current = $(tableRef.current).DataTable({
             serverSide: true,
             searching: true,
-            processing: true, // 🟢 Non-blocking built-in processing
+            processing: true,
             autoWidth: false,
             scrollX: false,
             pageLength: 100,
@@ -144,22 +147,8 @@ const DataTable = ({ title, columns, apiUrl, filters, onKpiUpdate, showSaveButto
                 url: apiUrl,
                 type: 'GET',
                 data: function (d) {
-                    const cleanFilters = {};
-                    if (filtersRef.current) {
-                        Object.keys(filtersRef.current).forEach(k => {
-                            const val = filtersRef.current[k];
-                            if (Array.isArray(val)) {
-                                if (val.length > 0 && !val.includes('All')) {
-                                    cleanFilters[k] = val.join(',');
-                                }
-                            } else if (val && val !== 'All') {
-                                cleanFilters[k] = val;
-                            }
-                        });
-                    }
-                    return $.extend({}, d, cleanFilters);
+                    return d; 
                 },
-                // 🟢 REMOVED FULL-SCREEN POPUP: User can click filters freely!
                 dataSrc: function (json) {
                     if (json.kpis && typeof onKpiUpdate === 'function') {
                         onKpiUpdate(json.kpis); 
@@ -177,14 +166,26 @@ const DataTable = ({ title, columns, apiUrl, filters, onKpiUpdate, showSaveButto
                     const metadataFields = ['bu', 'customer', 'loa_name', 'loa_id', 'cost_revenue'];
                     if (metadataFields.includes(col.field) && row.categories) return ""; 
 
-                    if (col.header === 'Non Committed' || col.field === 'non_committed') {
+                    if (col.header === 'Non Committed' || col.field === 'non_committed' || col.field === 'non_committed_editable') {
                         if (row.categories) {
-                            const original = parseFloat(row.non_committed_original) || 0;
-                            const current = parseFloat(data) || 0;
-                            const isModified = Math.abs(current - original) > 0.01;
-                            const highlightClass = isModified ? 'bg-blue-50 border-blue-400 text-blue-700' : 'border-slate-200';
+                            // 🔥 FIX: Strict check for exactly ONE WBS Type selected
+                            const wbsTypes = filtersRef.current?.wbs_type || [];
+                            const validWbsTypes = Array.isArray(wbsTypes) ? wbsTypes.filter(v => v !== 'All') : [];
+                            const isSingleWbsType = validWbsTypes.length === 1;
 
-                            return `<input type="number" class="nc-input w-full p-2 border-2 ${highlightClass} text-left font-bold rounded-lg shadow-sm" value="${current}" data-loa="${row.loa_name}" data-cat="${row.categories}" data-wbstype="${row.wbs_type}" step="any">`;
+                            const current = parseFloat(data) || 0;
+
+                            if (isSingleWbsType) {
+                                // EDITABLE STATE
+                                const original = parseFloat(row.non_committed) || parseFloat(row.non_committed_original) || 0;
+                                const isModified = Math.abs(current - original) > 0.01;
+                                const highlightClass = isModified ? 'bg-blue-50 border-blue-400 text-blue-700' : 'border-slate-200';
+
+                                return `<input type="number" class="nc-input w-full p-1.5 border-2 ${highlightClass} text-right font-bold rounded-lg shadow-sm" value="${current}" data-loa="${row.loa_name}" data-cat="${row.categories}" data-wbstype="${validWbsTypes[0]}" step="any">`;
+                            } else {
+                                // NON-EDITABLE STATE (Shows Sum dynamically)
+                                return `<div class="text-right font-bold pr-2 text-slate-600">${fmt(current)}</div>`;
+                            }
                         }
                     }
                     const drillFields = ['ptd', 'open_commitment_KEUR'];
@@ -203,13 +204,13 @@ const DataTable = ({ title, columns, apiUrl, filters, onKpiUpdate, showSaveButto
                     const rowData = data[0];
                     if (!rowData) return null;
 
-                    const showAsbl = filtersRef.current.wbs_type !== 'All';
-                    const asbl = showAsbl ? calculateSum(rows, 'asbl') : null;
+                    // 🔥 FIX: Render values unconditionally (Restored 0.00 logic)
+                    const asbl = calculateSum(rows, 'asbl');
                     const asbl_loa = calculateSum(rows, 'asbl_loa');
                     const ptd = calculateSum(rows, 'ptd');
-                    const oc = calculateSum(rows, 'open_commitment');
-                    const nc = calculateSum(rows, 'non_committed');
-                    const nc_orig = calculateSum(rows, 'non_committed_original'); 
+                    const oc = calculateSum(rows, 'open_commitment_KEUR') || calculateSum(rows, 'open_commitment');
+                    const nc = calculateSum(rows, 'non_committed_editable') || calculateSum(rows, 'non_committed');
+                    const nc_orig = calculateSum(rows, 'non_committed_original') || calculateSum(rows, 'non_committed'); 
                     const eac = ptd + oc + nc;
                     const varTotal = asbl - eac;
 
@@ -221,7 +222,7 @@ const DataTable = ({ title, columns, apiUrl, filters, onKpiUpdate, showSaveButto
                                 <td class="font-bold text-grey-700">${group}</td>
                                 <td class="font-bold text-grey-700">${rowData.loa_id}</td>
                                 <td></td><td></td>
-                                <td class="text-right font-bold text-grey-900">${showAsbl ? fmt(asbl) : ''}</td>
+                                <td class="text-right font-bold text-grey-900">${fmt(asbl)}</td>
                                 <td class="text-right font-bold text-grey-900">${fmt(asbl_loa)}</td>
                                 <td class="text-right font-bold text-grey-900">${fmt(ptd)}</td>
                                 <td class="text-right font-bold text-grey-900">${fmt(oc)}</td>
@@ -241,7 +242,7 @@ const DataTable = ({ title, columns, apiUrl, filters, onKpiUpdate, showSaveButto
                                 <td class="text-grey-700">${rowData.loa_id}</td>
                                 <td class="pbi-col font-bold text-grey-700">${!collapseView ? '<span class="toggle-icon">➕</span>' : ''} ${group}</td>
                                 <td></td>
-                                <td class="text-right font-bold text-grey-700">${showAsbl ? fmt(asbl) : ''}</td>
+                                <td class="text-right font-bold text-grey-700">${fmt(asbl)}</td>
                                 <td class="text-right font-bold text-grey-700">${fmt(asbl_loa)}</td>
                                 <td class="text-right font-bold text-grey-700">${fmt(ptd)}</td>
                                 <td class="text-right font-bold text-grey-700">${fmt(oc)}</td>
@@ -326,44 +327,28 @@ const DataTable = ({ title, columns, apiUrl, filters, onKpiUpdate, showSaveButto
         };
     }, []);
 
-    // useEffect(() => {
-    //     if (isFirstRender.current) {
-    //         isFirstRender.current = false;
-    //         return;
-    //     }
-    //     if (dataTableInstance.current) {
-    //         dataTableInstance.current.ajax.url(apiUrl).load();
-    //     }
-    // }, [apiUrl, filters]); 
-
-    const prevFiltersRef = useRef(filters);
-
-    const isMounted = useRef(false);
     const prevFiltersStr = useRef(JSON.stringify(filters));
+    const isMounted = useRef(false);
 
-    // 🔥 100% BULLETPROOF FILTER RELOADER (Guarantees EXACTLY 1 API Call on Load!)
     useEffect(() => {
-        // 1. Skip on initial mount (DataTable initialization on line 135 already fetches first call!)
         if (!isMounted.current) {
             isMounted.current = true;
             prevFiltersStr.current = JSON.stringify(filters);
             return;
         }
 
-        // 2. Only trigger .load() if filter content string ACTUALLY changed!
         const currentFiltersStr = JSON.stringify(filters);
         if (prevFiltersStr.current !== currentFiltersStr && dataTableInstance.current) {
             prevFiltersStr.current = currentFiltersStr;
-            dataTableInstance.current.ajax.url(apiUrl).load(); // Reloads ONLY when user changes a filter!
+            dataTableInstance.current.ajax.url(apiUrl).load();
         }
     }, [apiUrl, filters]);
 
     return (
         <div className="matrix-wrapper bg-white p-2 rounded-[2rem]">
-        {/* 🔥 HEADER ACTIONS REMOVED (Moved to SummaryView) */}
-        <table ref={tableRef} className="display nowrap pbi-table" style={{ width: '100%' }}></table>
-    </div>
-);
+            <table ref={tableRef} className="display nowrap pbi-table" style={{ width: '100%' }}></table>
+        </div>
+    );
 };
 
 export default DataTable;

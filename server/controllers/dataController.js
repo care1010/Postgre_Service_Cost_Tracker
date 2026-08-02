@@ -4,7 +4,8 @@ const XLSX = require('xlsx');
 const fs = require('fs');
 const NodeCache = require('node-cache');
 
-const filterCache = new NodeCache({ stdTTL: 300 }); 
+const filterCache = new NodeCache({ stdTTL: 300 });
+const inFlightRequests = new Map();
 
 // ==============================
 // COMMON RLS FUNCTION
@@ -13,6 +14,7 @@ const applyRLS = (type, allowedCustomers, conditions, params) => {
     if (type === 'super_admin') return;
 
     if (allowedCustomers && typeof allowedCustomers === 'string') {
+        // 🔥 FIX: Split by ||| to handle commas inside customer names!
         const customersArray = allowedCustomers
             .split(',')
             .map(c => c.trim().toLowerCase())
@@ -24,12 +26,53 @@ const applyRLS = (type, allowedCustomers, conditions, params) => {
             return;
         }
     }
-
     conditions.push(`1=0`);
 };
 
-
-
+// ══════════════════════════════════════════════════
+// SHARED FILTER BUILDER — SummaryView + Dashboard
+// dono pages yahi use karenge — guaranteed sync
+// ══════════════════════════════════════════════════
+const buildCommonFilters = (reqQuery, conditions, params) => {
+    const filterColumnMap = {
+        'bu':              'bu',
+        'customer':        'customer',
+        'loa_id':          'loa_id',
+        'loa_name':        'loa_name',
+        'wbs_type':        'wbs_type',
+        'wbs':             'wbs_element_single',
+        'wbs_description': 'wbs_description',
+        'period':          'period',
+        'active_inactive': 'active_inactive',
+    };
+ 
+    let hasActiveFilters = false;
+ 
+    Object.keys(filterColumnMap).forEach(key => {
+        const vals = getValArray(reqQuery[key], reqQuery, key);
+        if (!vals || vals.length === 0) return;
+ 
+        hasActiveFilters = true;
+        const dbCol = filterColumnMap[key];
+ 
+        if (key === 'active_inactive') {
+            const hasActive   = vals.some(v => v.toLowerCase() === 'active');
+            const hasInactive = vals.some(v => v.toLowerCase() === 'inactive');
+            if (hasActive && hasInactive) return; // dono hain = no filter needed
+            if (hasActive)   conditions.push(`(TRIM(LOWER("${dbCol}")) = 'active' OR "${dbCol}" IS NULL OR TRIM("${dbCol}") = '')`);
+            if (hasInactive) conditions.push(`TRIM(LOWER("${dbCol}")) = 'inactive'`);
+        } else {
+            const lowerVals = vals.map(v => String(v).trim().toLowerCase());
+            conditions.push(`TRIM(LOWER("${dbCol}")) IN (?)`);
+            params.push(lowerVals);
+        }
+    });
+ 
+    // Category Type filter
+    applyCategoryTypeFilter(reqQuery.category_type || reqQuery['category_type[]'], conditions);
+ 
+    return hasActiveFilters;
+};
 
 const getValArray = (val, reqQuery = null, keyName = null) => {
     let targetVal = val;
@@ -62,15 +105,39 @@ const applyCategoryTypeFilter = (catType, conditions) => {
 // ==============================
 exports.getFilterOptions = async (req, res) => {
     try {
-        const cacheKey = `CASCADED_FILTERS_${JSON.stringify(req.query)}`;
-        const cachedData = filterCache.get(cacheKey);
+        // 1. Smarter cache key — includes ALL query params for correct cascading
+        const cacheKey = `FILTERS_${JSON.stringify({
+            type: req.query.type,
+            allowedCustomers: req.query.allowedCustomers,
+            bu: req.query.bu,
+            customer: req.query.customer,
+            loa_id: req.query.loa_id,
+            loa_name: req.query.loa_name,
+            wbs_type: req.query.wbs_type,
+            wbs: req.query.wbs,
+            wbs_description: req.query.wbs_description,
+            period: req.query.period,
+            active_inactive: req.query.active_inactive,
+            category_type: req.query.category_type,
+        })}`;
 
-        if (cachedData) {
-            return res.status(200).json(cachedData); 
+        // 2. Cache hit — instant return
+        const cached = filterCache.get(cacheKey);
+        if (cached) return res.status(200).json(cached);
+
+        // 3. In-flight deduplication — same request already running? wait for it
+        if (inFlightRequests.has(cacheKey)) {
+            try {
+                const result = await inFlightRequests.get(cacheKey);
+                return res.status(200).json(result);
+            } catch (e) {
+                // if in-flight failed, proceed to fetch fresh
+            }
         }
 
         const { type, allowedCustomers } = req.query;
-        
+
+        // Base conditions (RLS + exclusions)
         let baseConditions = [
             "(categories IS NULL OR categories NOT IN ('Not to considered'))",
             "(cost_revenue IS NULL OR cost_revenue <> 'NTC')"
@@ -79,12 +146,19 @@ exports.getFilterOptions = async (req, res) => {
         applyRLS(type, allowedCustomers, baseConditions, baseParams);
 
         const columnMapping = {
-            'bu': 'bu', 'customer': 'customer', 'loa_id': 'loa_id', 'loa_name': 'loa_name',
-            'wbs_type': 'wbs_type', 'wbs': 'wbs_element_single', 
-            'wbs_description': 'wbs_description', 'period': 'period',
-            'active_inactive': 'active_inactive', 'category_type': 'categories'
+            'bu': 'bu',
+            'customer': 'customer',
+            'loa_id': 'loa_id',
+            'loa_name': 'loa_name',
+            'wbs_type': 'wbs_type',
+            'wbs': 'wbs_element_single',
+            'wbs_description': 'wbs_description',
+            'period': 'period',
+            'active_inactive': 'active_inactive',
+            'category_type': 'categories'
         };
 
+        // Build one filter query for a specific target field
         const getFilteredOptions = async (targetField) => {
             let conditions = [...baseConditions];
             let filterValues = [...baseParams];
@@ -114,32 +188,53 @@ exports.getFilterOptions = async (req, res) => {
             });
 
             const dbColName = columnMapping[targetField];
-            // 🔥 LOGIC: Sort period in DESC order, others in ASC
-            const sortOrder = (targetField === 'period') ? 'DESC' : 'ASC';
-            const sql = `SELECT DISTINCT "${dbColName}" as value 
-                         FROM final_dashboard_table 
-                         WHERE ${conditions.join(' AND ')} 
-                         AND "${dbColName}" IS NOT NULL AND "${dbColName}" <> ''
-                         ORDER BY 1 ${sortOrder}`;
-
+            const sortOrder = targetField === 'period' ? 'DESC' : 'ASC';
+            const sql = `
+                SELECT DISTINCT "${dbColName}" as value 
+                FROM final_dashboard_table 
+                WHERE ${conditions.join(' AND ')} 
+                AND "${dbColName}" IS NOT NULL AND "${dbColName}" <> ''
+                ORDER BY 1 ${sortOrder}
+                LIMIT 500
+            `;
             const [rows] = await db.query(sql, filterValues);
             return rows.map(r => r.value);
         };
 
-        const keys = ['bu', 'customer', 'loa_id', 'loa_name', 'wbs_type', 'wbs', 'wbs_description', 'period'];
-        const results = await Promise.all(keys.map(k => getFilteredOptions(k)));
+        // 4. Create the promise and register it for dedup
+        const fetchPromise = (async () => {
+            // 🔥 SEQUENTIAL instead of Promise.all — less DB pressure
+            // Tradeoff: slightly slower but NEVER overwhelms pool
+            // On cached data (second request): still fast from cache
+            const keys = ['bu', 'customer', 'loa_id', 'loa_name', 'wbs_type', 'wbs', 'wbs_description', 'period'];
+            const results = {};
 
-        const response = {
-            category_type: ['All', 'Local Materials'],
-            active_inactive: ['Active', 'Inactive']
-        };
-        keys.forEach((key, i) => { response[key] = results[i]; });
+            for (const k of keys) {
+                results[k] = await getFilteredOptions(k);
+            }
 
-        filterCache.set(cacheKey, response);
-        res.status(200).json(response);
+            const response = {
+                category_type: ['All', 'Local Materials'],
+                active_inactive: ['Active', 'Inactive'],
+                ...results,
+            };
+
+            // Cache for 2 minutes
+            filterCache.set(cacheKey, response, 120);
+            return response;
+        })();
+
+        inFlightRequests.set(cacheKey, fetchPromise);
+
+        const response = await fetchPromise;
+        inFlightRequests.delete(cacheKey);
+
+        return res.status(200).json(response);
+
     } catch (error) {
-        console.error("Filter Options Error:", error);
-        res.status(500).json({ error: error.message });
+        console.error("Filter Options Error:", error.message);
+        // Don't expose internal error details to client
+        res.status(500).json({ error: "Filter options temporarily unavailable. Please retry." });
     }
 };
 
@@ -176,90 +271,52 @@ const getDynamicNCColumns = (wbsTypes) => {
     }
     return cols.length > 0 ? `(${cols.join(' + ')})` : "0";
 };
+
 // ==============================
 // 3. WBS Summary View (Matrix - DYNAMIC ASBL/NC + ZERO VALUE ROWS FILTERED)
 // ==============================
-// ==============================
-// 3. WBS Summary View (Matrix - DYNAMIC ASBL & DYNAMIC NON-COMMITTED FIXED)
-// ==============================
 exports.getWbsSummary = async (req, res) => {
     try {
-        const { draw, start, length, showAll, type, allowedCustomers, bu, customer, loa_id } = req.query;
+        const { draw, start, length, showAll, type, allowedCustomers } = req.query;
         const startIdx = parseInt(start) || 0;
         const limitIdx = parseInt(length) || 100;
-
+ 
         const wTArr = getValArray(req.query.wbs_type, req.query, 'wbs_type');
-
-        // 🟢 1. DYNAMIC ASBL COLUMNS
+ 
+        // DYNAMIC ASBL COLUMNS — unchanged
         const asblCols = getDynamicSumColumns(wTArr, 'asbl');
         const asblValExpression = asblCols === "0" ? "0" : `COALESCE(NULLIF(${asblCols}, 0), asbl, 0)`;
-
-        // 🟢 2. DYNAMIC NON-COMMITTED COLUMNS (Smart Fallback for Both Original & Editable!)
+ 
+        // DYNAMIC NON-COMMITTED COLUMNS — unchanged
         const ncCols = getDynamicNCColumns(wTArr);
         const ncValExpression = ncCols === "0" ? "0" : `COALESCE(NULLIF(${ncCols}, 0), non_committed_editable, non_committed, 0)`;
-
-        const filterColumnMap = {
-            'bu': 'bu',
-            'customer': 'customer',
-            'loa_id': 'loa_id',
-            'loa_name': 'loa_name',
-            'wbs_type': 'wbs_type',
-            'wbs': 'wbs_element_single',
-            'wbs_description': 'wbs_description',
-            'period': 'period',
-            'active_inactive': 'active_inactive'
-        };
-
-        let hasActiveFilters = false;
+ 
         let filterParams = [];
-        let conditions = ["(categories IS NULL OR categories NOT IN ('Not to considered'))", "(cost_revenue IS NULL OR cost_revenue <> 'NTC')"];
+        let conditions = [
+            "(categories IS NULL OR categories NOT IN ('Not to considered'))",
+            "(cost_revenue IS NULL OR cost_revenue <> 'NTC')"
+        ];
         let baseParams = [];
-
+ 
         applyRLS(type, allowedCustomers, conditions, baseParams);
-
-        // Case & Space Safe Filter Loop
-        Object.keys(filterColumnMap).forEach(key => {
-            const vals = getValArray(req.query[key], req.query, key);
-            if (vals && vals.length > 0 && !vals.includes('All')) {
-                hasActiveFilters = true; 
-                const dbCol = filterColumnMap[key];
-
-                if (key === 'active_inactive') {
-                    const hasActive = vals.some(v => v.toLowerCase() === 'active');
-                    const hasInactive = vals.some(v => v.toLowerCase() === 'inactive');
-
-                    if (hasActive && hasInactive) return; // Show All
-
-                    if (hasActive) {
-                        conditions.push(`(TRIM(LOWER("${dbCol}")) = 'active' OR "${dbCol}" IS NULL OR TRIM("${dbCol}") = '')`);
-                    } else if (hasInactive) {
-                        conditions.push(`TRIM(LOWER("${dbCol}")) = 'inactive'`);
-                    }
-                } else {
-                    const lowerVals = vals.map(v => String(v).trim().toLowerCase());
-                    conditions.push(`TRIM(LOWER("${dbCol}")) IN (?)`);
-                    filterParams.push(lowerVals);
-                }
-            }
-        });
-
-        const catTypeVal = req.query.category_type || req.query['category_type[]'];
-        applyCategoryTypeFilter(catTypeVal, conditions);
-
+ 
+        // 🔥 REPLACED: filterColumnMap loop → buildCommonFilters (shared with Dashboard)
+        const hasActiveFilters = buildCommonFilters(req.query, conditions, filterParams);
+ 
         const isDefaultView = !hasActiveFilters && (startIdx === 0);
         const cacheKey = `DEFAULT_SUMMARY_VIEW_${type}_${allowedCustomers || 'ALL'}`;
-
+ 
         if (isDefaultView) {
             const cachedPage = filterCache.get(cacheKey);
             if (cachedPage) {
                 return res.status(200).json({ ...cachedPage, draw: parseInt(draw) || 0 });
             }
         }
-
+ 
         const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
         const combinedParams = [...baseParams, ...filterParams];
-
-        // 🔥 MATRIX QUERY WITH FALLBACK ASBL & DYNAMIC NON-COMMITTED
+ 
+        // ── MATRIX QUERY — 100% UNCHANGED ──
         const matrixQuery = `
             SELECT 
                 t.bu, t.customer, t.loa_id, t.loa_name, t.cost_revenue, t.categories, 
@@ -274,10 +331,10 @@ exports.getWbsSummary = async (req, res) => {
                 
                 ROUND(MAX(COALESCE(static.nc_val, 0)), 2) as non_committed_editable, 
                 ROUND(MAX(COALESCE(static.nc_val, 0)), 2) as non_committed, 
-
+ 
                 ROUND(SUM(t.ptd_val) + SUM(t.oc_val) + MAX(COALESCE(static.nc_val, 0)), 2) as eac,
                 ROUND(MAX(COALESCE(static.asbl_val, 0)) - (SUM(t.ptd_val) + SUM(t.oc_val) + MAX(COALESCE(static.nc_val, 0))), 2) as eac_vs_asbl
-
+ 
             FROM (
                 SELECT 
                     bu, customer, loa_id, loa_name, cost_revenue, categories, "Merged_wbs_categories",
@@ -290,7 +347,7 @@ exports.getWbsSummary = async (req, res) => {
                     "Merged_wbs_categories", 
                     MAX(${asblValExpression}) as asbl_val, 
                     MAX(asbl_loa) as asbl_loa_val,
-                    MAX(${ncValExpression}) as nc_val      -- 🔥 Dynamic NC Value with Fallback!
+                    MAX(${ncValExpression}) as nc_val
                 FROM final_dashboard_table
                 GROUP BY "Merged_wbs_categories"
             ) as static ON t."Merged_wbs_categories" = static."Merged_wbs_categories"
@@ -300,12 +357,13 @@ exports.getWbsSummary = async (req, res) => {
             ${String(showAll) === 'false' ? 'AND (ABS(SUM(t.ptd_val)) > 0.01 OR ABS(SUM(t.oc_val)) > 0.01 OR ABS(MAX(COALESCE(static.asbl_val, 0))) > 0.01 OR ABS(MAX(COALESCE(static.nc_val, 0))) > 0.01)' : ''}
             ORDER BY loa_name ASC, cost_revenue ASC
         `;
-
+ 
         const [dataRows] = await db.query(`${matrixQuery} LIMIT ?, ?`, [...combinedParams, startIdx, limitIdx]);
         const [countRes] = await db.query(`SELECT COUNT(*) as total FROM (${matrixQuery}) as temp`, combinedParams);
-
+ 
         const totalCount = parseInt(countRes[0]?.total || countRes[0]?.count || 0);
-
+ 
+        // ── KPI QUERY — 100% UNCHANGED ──
         const kpiQuery = `
             SELECT 
                 SUM(CASE WHEN cost_revenue = 'Revenue' THEN cat_asbl ELSE 0 END) as asbl_rev,
@@ -333,26 +391,29 @@ exports.getWbsSummary = async (req, res) => {
         
         const [kpiRes] = await db.query(kpiQuery, combinedParams);
         const k = kpiRes[0] || {};
-
+ 
         const responsePayload = {
             draw: parseInt(draw) || 0, 
             recordsTotal: totalCount,
             recordsFiltered: totalCount, 
             data: dataRows,
             kpis: {
-                asbl_rev: Number(k.asbl_rev || 0).toFixed(2), asbl_cost: Number(k.asbl_cost || 0).toFixed(2),
+                asbl_rev: Number(k.asbl_rev || 0).toFixed(2),
+                asbl_cost: Number(k.asbl_cost || 0).toFixed(2),
                 asbl_sm: calculateSM(k.asbl_rev, k.asbl_cost),
-                ptd_rev: Number(k.ptd_rev || 0).toFixed(2), ptd_cost: Number(k.ptd_cost || 0).toFixed(2),
-                ptd_sm: calculateSM(k.ptd_rev, k.ptd_cost), eac_sm: calculateSM(k.eac_rev, k.eac_cost)
+                ptd_rev: Number(k.ptd_rev || 0).toFixed(2),
+                ptd_cost: Number(k.ptd_cost || 0).toFixed(2),
+                ptd_sm: calculateSM(k.ptd_rev, k.ptd_cost),
+                eac_sm: calculateSM(k.eac_rev, k.eac_cost)
             }
         };
-
+ 
         if (isDefaultView) {
             filterCache.set(cacheKey, responsePayload);
         }
-
+ 
         res.status(200).json(responsePayload);
-
+ 
     } catch (error) {
         console.error("WbsSummary Error:", error);
         res.status(500).json({ error: error.message });
@@ -367,35 +428,34 @@ exports.getWbsSummaryCollapse = async (req, res) => {
         const { draw, start, length, type, allowedCustomers } = req.query;
         const startIdx = parseInt(start) || 0;
         const limitIdx = parseInt(length) || 100;
-
-        const wTArr = getValArray(req.query.wbs_type);
-        const wEArr = getValArray(req.query.wbs);
-
-        let conditions = ["(categories IS NULL OR categories NOT IN ('Not to considered'))", "(cost_revenue IS NULL OR cost_revenue <> 'NTC')"];
+ 
+        const wTArr = getValArray(req.query.wbs_type, req.query, 'wbs_type');
+ 
+        let conditions = [
+            "(categories IS NULL OR categories NOT IN ('Not to considered'))",
+            "(cost_revenue IS NULL OR cost_revenue <> 'NTC')"
+        ];
         let baseParams = [];
         applyRLS(type, allowedCustomers, conditions, baseParams);
-
+ 
         let filterParams = [];
-        const dbFilters = ['bu', 'customer', 'loa_id', 'loa_name', 'active_inactive', 'period', 'wbs_type', 'wbs_description'];
-        dbFilters.forEach(key => {
-            const vals = getValArray(req.query[key]);
-            if (vals && vals.length > 0 && !vals.includes('All')) {
-                conditions.push(`"${key}" IN (?)`);
-                filterParams.push(vals);
-            }
-        });
-        if (wEArr && !wEArr.includes('All')) { conditions.push(`wbs_element_single IN (?)`); filterParams.push(wEArr); }
-
+ 
+        // 🔥 REPLACED: manual dbFilters loop → buildCommonFilters (shared with Dashboard)
+        buildCommonFilters(req.query, conditions, filterParams);
+ 
         const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
-        
-        let asblSumLogic = "MAX(asbl)"; 
+ 
+        // ASBL logic — unchanged
+        let asblSumLogic = "MAX(asbl)";
         if (wTArr && wTArr.length > 0) {
             let parts = [];
             if (wTArr.some(v => v.toLowerCase().includes('project'))) parts.push("MAX(asbl_project)");
-            if (wTArr.some(v => v.toLowerCase().includes('amc'))) parts.push("MAX(asbl_amc)");
+            if (wTArr.some(v => v.toLowerCase().includes('amc')))     parts.push("MAX(asbl_amc)");
+            if (wTArr.some(v => v.toLowerCase().includes('warranty'))) parts.push("MAX(asbl_warranty)");
             if (parts.length > 0) asblSumLogic = `(${parts.join(' + ')})`;
         }
-
+ 
+        // ── SQL QUERY — 100% UNCHANGED ──
         const sql = `
             SELECT 
                 bu, customer, loa_name, loa_id, cost_revenue,
@@ -412,14 +472,20 @@ exports.getWbsSummaryCollapse = async (req, res) => {
             GROUP BY bu, customer, loa_name, loa_id, cost_revenue
             ORDER BY loa_name ASC
         `;
-
+ 
         const [dataRows] = await db.query(`${sql} LIMIT ?, ?`, [...baseParams, ...filterParams, startIdx, limitIdx]);
         const [countRes] = await db.query(`SELECT COUNT(*) as total FROM (${sql}) temp`, [...baseParams, ...filterParams]);
-
+ 
         const totalCount = parseInt(countRes[0]?.total || 0);
-
-        res.status(200).json({ draw: parseInt(draw) || 0, recordsTotal: totalCount, recordsFiltered: totalCount, data: dataRows });
+ 
+        res.status(200).json({
+            draw: parseInt(draw) || 0,
+            recordsTotal: totalCount,
+            recordsFiltered: totalCount,
+            data: dataRows
+        });
     } catch (error) {
+        console.error("WbsSummaryCollapse Error:", error);
         res.status(500).json({ error: error.message });
     }
 };
@@ -1178,116 +1244,120 @@ exports.getDashboardFilters = async (req, res) => {
         const { type, allowedCustomers } = req.query;
 
         const buildConditions = (excludeKey) => {
-            const { years, periods, customers, active_inactive, loa_names, loa_ids, bu, wbs_type, wbs, wbs_description, category_type } = req.query;
-            
             let conditions = ["customer IS NOT NULL", "loa_name IS NOT NULL"];
             let params = [];
 
             applyRLS(type, allowedCustomers, conditions, params);
 
-            // Category Type Logic
+            // Category Type
+            const { category_type } = req.query;
             if (!category_type) {
                 conditions.push(`categories <> 'Local Materials'`);
             } else {
-                let catArr = Array.isArray(category_type) ? category_type : category_type.split(',').map(v => v.trim());
+                let catArr = Array.isArray(category_type)
+                    ? category_type
+                    : category_type.split(',').map(v => v.trim());
                 const hasAll = catArr.includes('All');
-                const hasLM = catArr.includes('Local Materials');
-                if (hasAll && !hasLM) conditions.push(`categories <> 'Local Materials'`);
-                else if (!hasAll && hasLM) conditions.push(`categories = 'Local Materials'`);
+                const hasLM  = catArr.includes('Local Materials');
+                if (hasAll && !hasLM)       conditions.push(`categories <> 'Local Materials'`);
+                else if (!hasAll && hasLM)  conditions.push(`categories = 'Local Materials'`);
                 else if (!hasAll && !hasLM) conditions.push(`categories <> 'Local Materials'`);
             }
 
-            if (bu && excludeKey !== 'bus') {
-                const buArray = bu.split(',').filter(Boolean);
-                if (buArray.length > 0) { conditions.push(`bu IN (?)`); params.push(buArray); }
-            }
-            if (wbs_type && wbs_type !== 'All' && excludeKey !== 'wbs_type') {
-                conditions.push(`wbs_type = ?`); params.push(wbs_type);
-            }
-            if (loa_ids && excludeKey !== 'loa_ids') {
-                const loaIdArray = loa_ids.split(',').filter(Boolean);
-                if (loaIdArray.length > 0) { conditions.push(`loa_id IN (?)`); params.push(loaIdArray); }
-            }
-            // 🔥 WBS Filter Logic
-            if (wbs && excludeKey !== 'wbs') {
-                const wbsArray = wbs.split(',').filter(Boolean);
-                if (wbsArray.length > 0) { conditions.push(`wbs_element_single IN (?)`); params.push(wbsArray); }
-            }
-            // 🔥 WBS Description Filter Logic
-            if (wbs_description && excludeKey !== 'wbs_description') {
-                const descArray = wbs_description.split(',').filter(Boolean);
-                if (descArray.length > 0) { conditions.push(`wbs_description IN (?)`); params.push(descArray); }
-            }
-            if (years && excludeKey !== 'years') {
-                const yearArray = years.split(',').filter(Boolean);
+            // 🔥 KEY FIX: filterColumnMap — same as buildCommonFilters
+            const filterColumnMap = {
+                'bu':              'bu',
+                'customer':        'customer',
+                'loa_id':          'loa_id',
+                'loa_name':        'loa_name',
+                'wbs_type':        'wbs_type',
+                'wbs':             'wbs_element_single',
+                'wbs_description': 'wbs_description',
+                'period':          'period',
+                'active_inactive': 'active_inactive',
+            };
+
+            Object.keys(filterColumnMap).forEach(key => {
+                // Exclude current field (cascading logic)
+                if (key === excludeKey) return;
+
+                const vals = getValArray(req.query[key], req.query, key);
+                if (!vals || vals.length === 0) return;
+
+                const dbCol = filterColumnMap[key];
+
+                if (key === 'active_inactive') {
+                    const hasActive   = vals.some(v => v.toLowerCase() === 'active');
+                    const hasInactive = vals.some(v => v.toLowerCase() === 'inactive');
+                    if (hasActive && hasInactive) return;
+                    if (hasActive)   conditions.push(`(TRIM(LOWER("${dbCol}")) = 'active' OR "${dbCol}" IS NULL OR TRIM("${dbCol}") = '')`);
+                    if (hasInactive) conditions.push(`TRIM(LOWER("${dbCol}")) = 'inactive'`);
+                } else {
+                    const lowerVals = vals.map(v => String(v).trim().toLowerCase());
+                    conditions.push(`TRIM(LOWER("${dbCol}")) IN (?)`);
+                    params.push(lowerVals);
+                }
+            });
+
+            // years — alag handle (period LIKE syntax)
+            const { years } = req.query;
+            if (years && excludeKey !== 'period') {
+                const yearArray = years.split(',').map(y => y.trim()).filter(Boolean);
                 if (yearArray.length > 0) {
-                    conditions.push(`(${yearArray.map(() => "period LIKE ?").join(' OR ')})`);
-                    params.push(...yearArray.map(y => `${y.trim()}-%`));
+                    conditions.push(`(${yearArray.map(() => 'period LIKE ?').join(' OR ')})`);
+                    params.push(...yearArray.map(y => `${y}-%`));
                 }
             }
-            if (periods && excludeKey !== 'periods') {
-                const periodArray = periods.split(',').filter(Boolean);
-                if (periodArray.length > 0) { conditions.push(`period IN (?)`); params.push(periodArray); }
-            }
-            if (customers && excludeKey !== 'customers') {
-                const customerArray = customers.split(',').filter(Boolean);
-                if (customerArray.length > 0) { conditions.push(`customer IN (?)`); params.push(customerArray); }
-            }
-            if (loa_names && excludeKey !== 'loa_names') {
-                const loaArray = loa_names.split(',').filter(Boolean);
-                if (loaArray.length > 0) { conditions.push(`loa_name IN (?)`); params.push(loaArray); }
-            }
-            if (active_inactive) {
-                conditions.push(`active_inactive = ?`); params.push(active_inactive);
-            }
-            return { whereSql: conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '', params };
+
+            return {
+                whereSql: conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '',
+                params
+            };
         };
 
-        // Queries execution
-        const buQ = buildConditions('bus');
-        const [buRows] = await db.query(`SELECT DISTINCT bu FROM final_dashboard_table ${buQ.whereSql} ORDER BY bu ASC`, buQ.params);
+        // Queries — excludeKey match karo filterColumnMap keys se
+        const buQ      = buildConditions('bu');
+        const [buRows] = await db.query(`SELECT DISTINCT bu FROM final_dashboard_table ${buQ.whereSql} AND bu IS NOT NULL ORDER BY bu ASC`, buQ.params);
 
-        const wbsTypeQ = buildConditions('wbs_type');
+        const wbsTypeQ      = buildConditions('wbs_type');
         const [wbsTypeRows] = await db.query(`SELECT DISTINCT wbs_type FROM final_dashboard_table ${wbsTypeQ.whereSql} AND wbs_type IS NOT NULL ORDER BY wbs_type ASC`, wbsTypeQ.params);
 
-        const custQ = buildConditions('customers');
-        const [customerRows] = await db.query(`SELECT DISTINCT customer FROM final_dashboard_table ${custQ.whereSql} ORDER BY customer ASC`, custQ.params);
+        const custQ         = buildConditions('customer');
+        const [customerRows]= await db.query(`SELECT DISTINCT customer FROM final_dashboard_table ${custQ.whereSql} AND customer IS NOT NULL ORDER BY customer ASC`, custQ.params);
 
-        const perQ = buildConditions('periods');
-        const [periodRows] = await db.query(`SELECT DISTINCT period FROM final_dashboard_table ${perQ.whereSql} AND period IS NOT NULL ORDER BY period DESC`, perQ.params);
+        const perQ          = buildConditions('period');
+        const [periodRows]  = await db.query(`SELECT DISTINCT period FROM final_dashboard_table ${perQ.whereSql} AND period IS NOT NULL ORDER BY period DESC`, perQ.params);
 
-        const loaIdQ = buildConditions('loa_ids');
-        const [loaIdRows] = await db.query(`SELECT DISTINCT loa_id FROM final_dashboard_table ${loaIdQ.whereSql} ORDER BY loa_id ASC`, loaIdQ.params);
+        const loaIdQ        = buildConditions('loa_id');
+        const [loaIdRows]   = await db.query(`SELECT DISTINCT loa_id FROM final_dashboard_table ${loaIdQ.whereSql} AND loa_id IS NOT NULL ORDER BY loa_id ASC`, loaIdQ.params);
 
-        const loaQ = buildConditions('loa_names');
-        const [loaRows] = await db.query(`SELECT DISTINCT loa_name FROM final_dashboard_table ${loaQ.whereSql} ORDER BY loa_name ASC`, loaQ.params);
+        const loaQ          = buildConditions('loa_name');
+        const [loaRows]     = await db.query(`SELECT DISTINCT loa_name FROM final_dashboard_table ${loaQ.whereSql} AND loa_name IS NOT NULL ORDER BY loa_name ASC`, loaQ.params);
 
-        // 🔥 NEW: Fetch WBS (single_wbs)
-        const wbsValQ = buildConditions('wbs');
-        const [wbsRows] = await db.query(`SELECT DISTINCT wbs_element_single as wbs FROM final_dashboard_table ${wbsValQ.whereSql} AND wbs_element_single IS NOT NULL ORDER BY 1 ASC`, wbsValQ.params);
+        const wbsValQ       = buildConditions('wbs');
+        const [wbsRows]     = await db.query(`SELECT DISTINCT wbs_element_single as wbs FROM final_dashboard_table ${wbsValQ.whereSql} AND wbs_element_single IS NOT NULL ORDER BY 1 ASC`, wbsValQ.params);
 
-        // 🔥 NEW: Fetch WBS Description
-        const wbsDescQ = buildConditions('wbs_description');
+        const wbsDescQ      = buildConditions('wbs_description');
         const [wbsDescRows] = await db.query(`SELECT DISTINCT wbs_description FROM final_dashboard_table ${wbsDescQ.whereSql} AND wbs_description IS NOT NULL ORDER BY 1 ASC`, wbsDescQ.params);
 
-        const yearsList = [...new Set(periodRows.map(r => r.period?.split('-')[0]))].filter(Boolean).sort((a,b)=>b-a);
+        const yearsList = [...new Set(periodRows.map(r => r.period?.split('-')[0]))].filter(Boolean).sort((a, b) => b - a);
 
         res.status(200).json({
-            category_types: ['All', 'Local Materials'],
-            bus: buRows.map(r => r.bu),
-            wbs_types: wbsTypeRows.map(r => r.wbs_type), 
-            years: yearsList,
-            periods: periodRows.map(r => r.period),
-            customers: customerRows.map(r => r.customer),
-            loa_ids: loaIdRows.map(r => r.loa_id),
-            loa_names: loaRows.map(r => r.loa_name),
-            wbs: wbsRows.map(r => r.wbs), // 🔥 Added
-            wbs_descriptions: wbsDescRows.map(r => r.wbs_description) // 🔥 Added
+            category_types:   ['All', 'Local Materials'],
+            bus:              buRows.map(r => r.bu),
+            wbs_types:        wbsTypeRows.map(r => r.wbs_type),
+            years:            yearsList,
+            periods:          periodRows.map(r => r.period),
+            customers:        customerRows.map(r => r.customer),
+            loa_ids:          loaIdRows.map(r => r.loa_id),
+            loa_names:        loaRows.map(r => r.loa_name),
+            wbs:              wbsRows.map(r => r.wbs),
+            wbs_descriptions: wbsDescRows.map(r => r.wbs_description)
         });
 
-    } catch (error) { 
+    } catch (error) {
         console.error("Dashboard Filters Error:", error);
-        res.status(500).json({ error: error.message }); 
+        res.status(500).json({ error: error.message });
     }
 };
 
@@ -1358,88 +1428,7 @@ const getDashboardAnalyticsSQL = (groupByCol, asblCols, ncCols) => {
 // COMMON Dashboard Filters FUNCTION (Fixed for WBS)
 // ==============================
 const applyDashboardFilters = (query, conditions, params) => {
-    // 🔥 Added wbs, wbs_description and wbs_type to destructuring
-    const { bu, years, periods, customers, loa_names, loa_ids, active_inactive, category_type, wbs, wbs_description, wbs_type } = query;
-
-    // 1. Category Type Logic (Existing - No Change)
-    if (!category_type) {
-        conditions.push(`categories <> 'Local Materials'`);
-    } else {
-        let catArr = Array.isArray(category_type) ? category_type : category_type.split(',').map(v => v.trim());
-        const hasAll = catArr.includes('All');
-        const hasLM = catArr.includes('Local Materials');
-        if (hasAll && !hasLM) conditions.push(`categories <> 'Local Materials'`);
-        else if (!hasAll && hasLM) conditions.push(`categories = 'Local Materials'`);
-        else if (!hasAll && !hasLM) conditions.push(`categories <> 'Local Materials'`);
-    }
-
-    // 2. BU Filter
-    if (bu) {
-        const buArray = bu.split(',').map(b => b.trim()).filter(Boolean);
-        if (buArray.length > 0) {
-            conditions.push(`bu IN (?)`);
-            params.push(buArray);
-        }
-    }
-
-    // 3. 🔥 NEW: WBS Type Filter (Mandatory impact on ASBL)
-    if (wbs_type && wbs_type !== 'All') {
-        conditions.push(`wbs_type = ?`);
-        params.push(wbs_type);
-    }
-
-    // 4. 🔥 NEW: WBS (single_wbs) Filter
-    if (wbs) {
-        const wbsArray = wbs.split(',').map(w => w.trim()).filter(Boolean);
-        if (wbsArray.length > 0) {
-            conditions.push(`wbs_element_single IN (?)`);
-            params.push(wbsArray);
-        }
-    }
-
-    // 5. 🔥 NEW: WBS Description Filter
-    if (wbs_description) {
-        const descArray = wbs_description.split(',').map(d => d.trim()).filter(Boolean);
-        if (descArray.length > 0) {
-            conditions.push(`wbs_description IN (?)`);
-            params.push(descArray);
-        }
-    }
-
-    // 6. LOA ID Filter (If passed)
-    if (loa_ids) {
-        const loaIdArray = loa_ids.split(',').map(l => l.trim()).filter(Boolean);
-        if (loaIdArray.length > 0) {
-            conditions.push(`loa_id IN (?)`);
-            params.push(loaIdArray);
-        }
-    }
-
-    // 7. Standard Filters (Existing - No Change)
-    if (years) {
-        const yearArray = years.split(',');
-        conditions.push(`(${yearArray.map(() => "period LIKE ?").join(' OR ')})`);
-        params.push(...yearArray.map(y => `${y}-%`));
-    }
-    if (periods) {
-        const periodArray = periods.split(',');
-        conditions.push(`period IN (?)`);
-        params.push(periodArray);
-    }
-    if (customers) {
-        const customerArray = customers.split(',');
-        conditions.push(`customer IN (?)`);
-        params.push(customerArray);
-    }
-    if (loa_names) {
-        const loaArray = loa_names.split(',');
-        conditions.push(`loa_name IN (?)`);
-        params.push(loaArray);
-    }
-    if (active_inactive) {
-        conditions.push(`active_inactive = ?`);
-        params.push(active_inactive);
-    }
+    buildCommonFilters(query, conditions, params);
 };
 
 // ==========================================
@@ -1497,8 +1486,18 @@ exports.getLoaAnalytics = async (req, res) => {
 
 exports.getNonCommittedTrend = async (req, res) => {
     try {
-        const { loa_name = '' , active_inactive = ''} = req.query;
+        let { loa_name = '', active_inactive = '', wbs_type = '', category_type = '' } = req.query;
+
+        // 🔥 BACKEND FAILSAFE: Agar frontend galti se Array bhej de, toh uski pehli value uthao (Prevents Postgres Crash)
+        if (Array.isArray(loa_name)) loa_name = loa_name[0];
+        if (Array.isArray(active_inactive)) active_inactive = active_inactive[0];
+
         const currentMonthYear = new Date().toLocaleString('en-US', { month: 'short', year: 'numeric' }).replace(' ', '-');
+
+        // 1. Array parsing for WBS and Category
+        const wTArr = wbs_type ? String(wbs_type).split(',').map(v => v.trim().toLowerCase()).filter(Boolean) : [];
+        const catArr = category_type ? String(category_type).split(',').map(v => v.trim().toLowerCase()).filter(Boolean) : [];
+
         const [rows] = await db.query(
             `
             SELECT

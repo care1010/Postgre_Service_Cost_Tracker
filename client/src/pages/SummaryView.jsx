@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import axios from 'axios';
 import DataTable from '../components/DataTable';
 import FilterBar from '../components/FilterBar';
@@ -6,27 +6,141 @@ import KpiCards from '../components/KpiCards';
 import AsblModal from '../components/AsblModal';
 import ReviewChanges from './ReviewChanges';
 import Swal from 'sweetalert2';
-import $ from 'jquery'; // 🔥 Required for Global Save logic
+import $ from 'jquery';
 import { 
     HiOutlineFilter, 
-    HiOutlineSearch, 
     HiOutlineRefresh, 
     HiChevronRight, 
     HiOutlineSave, 
-    HiDownload, 
     HiOutlineViewGrid,
-    HiOutlineSwitchHorizontal,
-    HiOutlineSwitchVertical,
     HiOutlineUpload,
+    HiChevronDown,
 } from "react-icons/hi";
 
-
-const SummaryView = ({ user }) => {
-    // 1. STATES
-    const [filters, setFilters] = useState({
-        category_type: ['All'], bu: [], customer: [], loa_id: [], loa_name: [], wbs_type: [], wbs_description: [], wbs: [], active_inactive: ['Active'], period: []
+// ─────────────────────────────────────────────────────────────
+// Helper: array params properly encode karna
+// allowedCustomers ke duplicates bhi yahan dedupe honge
+// ─────────────────────────────────────────────────────────────
+const buildQueryParams = (filters, extra = {}) => {
+    const params = new URLSearchParams();
+    Object.keys(filters).forEach(key => {
+        const val = filters[key];
+        if (Array.isArray(val)) {
+            const cleaned = [...new Set(val)].filter(v => v && v !== 'All');
+            if (cleaned.length > 0) {
+                params.append(key, cleaned.join(','));
+                // params.append(key, cleaned.join('|||'));
+            }
+        } else if (val && val !== 'All') {
+            params.append(key, val);
+        }
     });
+    Object.keys(extra).forEach(k => {
+        if (extra[k] !== undefined && extra[k] !== null && extra[k] !== '') {
+            params.append(k, extra[k]);
+        }
+        // if (extra[k] !== undefined && extra[k] !== null) {
+        //     // Hum yahan empty string ('') ko bhi set karenge taaki global filter reset ho sake!
+        //     params.set(k, extra[k]); 
+        // }
+    });
+    return params;
+};
 
+// Dedupe array — allowedCustomers mein duplicates remove karo
+const dedupeArray = (arr) => [...new Set(arr || [])];
+
+// ─────────────────────────────────────────────────────────────
+// Inline WBS Type Dropdown
+// Banner ke andar rahega — select karne ke baad bhi visible
+// ─────────────────────────────────────────────────────────────
+const WbsTypeInlineDropdown = ({ options = [], selected = [], onChange }) => {
+    const [isOpen, setIsOpen] = useState(false);
+    const containerRef = useRef(null);
+
+    useEffect(() => {
+        const handleOutside = (e) => {
+            if (containerRef.current && !containerRef.current.contains(e.target)) {
+                setIsOpen(false);
+            }
+        };
+        document.addEventListener('mousedown', handleOutside);
+        return () => document.removeEventListener('mousedown', handleOutside);
+    }, []);
+
+    const toggleOption = (val) => {
+        if (selected.includes(val)) {
+            onChange('wbs_type', selected.filter(v => v !== val));
+        } else {
+            onChange('wbs_type', [...selected, val]);
+        }
+    };
+
+    const displayText = selected.length > 0 ? selected.join(', ') : 'Select WBS Type ▾';
+
+    return (
+        <div ref={containerRef} className="relative inline-block ml-2" style={{ minWidth: '190px' }}>
+            <button
+                onClick={(e) => { e.stopPropagation(); setIsOpen(prev => !prev); }}
+                className={`flex items-center gap-2 px-3 py-1.5 border-2 rounded-lg text-sm font-bold shadow-sm transition-all
+                    ${selected.length > 0
+                        ? 'bg-blue-600 border-blue-600 text-white hover:bg-blue-700'
+                        : 'bg-white border-orange-400 text-orange-700 hover:bg-orange-50'
+                    }`}
+            >
+                <span className="truncate max-w-[150px]">{displayText}</span>
+                <HiChevronDown className={`flex-shrink-0 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`} />
+            </button>
+
+            {isOpen && (
+                <div className="absolute top-full left-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-2xl z-[9999] min-w-[200px] py-1 overflow-hidden">
+                    {options.length === 0 ? (
+                        <div className="px-4 py-3 text-sm text-slate-400 italic">No options available</div>
+                    ) : (
+                        options.map(opt => {
+                            const isSelected = selected.includes(opt);
+                            return (
+                                <div
+                                    key={opt}
+                                    onClick={(e) => { e.stopPropagation(); toggleOption(opt); }}
+                                    className={`flex items-center gap-3 px-4 py-2.5 text-sm cursor-pointer transition-colors
+                                        ${isSelected ? 'bg-blue-50 text-blue-700 font-bold' : 'text-slate-700 hover:bg-slate-50'}`}
+                                >
+                                    <span className={`w-4 h-4 rounded border-2 flex items-center justify-center flex-shrink-0 transition-all
+                                        ${isSelected ? 'bg-blue-600 border-blue-600' : 'border-slate-300'}`}>
+                                        {isSelected && (
+                                            <svg className="w-2.5 h-2.5 text-white" viewBox="0 0 10 10" fill="none">
+                                                <path d="M2 5l2.5 2.5L8 3" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                                            </svg>
+                                        )}
+                                    </span>
+                                    <span>{opt}</span>
+                                </div>
+                            );
+                        })
+                    )}
+                    {selected.length > 0 && (
+                        <div className="border-t border-slate-100 mt-0.5">
+                            <button
+                                onClick={(e) => { e.stopPropagation(); onChange('wbs_type', []); setIsOpen(false); }}
+                                className="w-full text-left px-4 py-2 text-xs text-red-500 font-bold hover:bg-red-50 transition-colors"
+                            >
+                                ✕ Clear Selection
+                            </button>
+                        </div>
+                    )}
+                </div>
+            )}
+        </div>
+    );
+};
+
+
+// ═══════════════════════════════════════════════════
+// MAIN COMPONENT
+// Props: filters, onFilterChange, onResetFilters — App.js se aate hain
+// ═══════════════════════════════════════════════════
+const SummaryView = ({ user, filters, onFilterChange, onResetFilters }) => {
     const [options, setOptions] = useState({});
     const [kpiData, setKpiData] = useState(null);
     const [isModalOpen, setIsModalOpen] = useState(false);
@@ -36,10 +150,57 @@ const SummaryView = ({ user }) => {
     const [collapseView, setCollapseView] = useState(false);
     const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
-    // 2. GLOBAL SAVE HANDLER (Moved from DataTable)
+    // Dedupe allowedCustomers — login ke time duplicate values aa sakti hain
+    const allowedCustomers = dedupeArray(user?.allowedCustomers);
+
+    // DEBOUNCED + ABORTABLE FILTER OPTIONS FETCH
+    // 500ms debounce + AbortController:
+    // User 3 filters rapidly select kare -> sirf LAST request backend tak pahunche
+    // Purani in-flight requests cancel ho jaati hain -> no pool exhaustion
+    const debounceTimer = useRef(null);
+    const abortControllerRef = useRef(null);
+
+    useEffect(() => {
+        if (!user) return;
+
+        // Clear pending debounce
+        if (debounceTimer.current) clearTimeout(debounceTimer.current);
+
+        // Cancel any in-flight request immediately
+        if (abortControllerRef.current) {
+            abortControllerRef.current.abort();
+        }
+
+        debounceTimer.current = setTimeout(async () => {
+            // New AbortController for this request
+            abortControllerRef.current = new AbortController();
+            try {
+                const params = buildQueryParams(filters, {
+                    type: user?.type,
+                    allowedCustomers: allowedCustomers.join(',')
+                });
+                const res = await axios.get(
+                    `${process.env.REACT_APP_API_URL}/api/data/filter-options?${params.toString()}`,
+                    { signal: abortControllerRef.current.signal }
+                );
+                setOptions(res.data);
+            } catch (err) {
+                if (axios.isCancel(err) || err.name === 'CanceledError' || err.name === 'AbortError') {
+                    return;
+                }
+                console.error('Filter options fetch error:', err.message);
+            }
+        }, 500);
+
+        return () => {
+            if (debounceTimer.current) clearTimeout(debounceTimer.current);
+            if (abortControllerRef.current) abortControllerRef.current.abort();
+        };
+    }, [user, JSON.stringify(filters)]); // eslint-disable-line
+
+    // ─── GLOBAL SAVE HANDLER ───
     const handleSave = async () => {
         const updates = [];
-        // jQuery grabs all inputs that user modified
         $('.nc-input.is-changed').each(function () {
             updates.push({
                 loa_name: $(this).data('loa'),
@@ -76,7 +237,7 @@ const SummaryView = ({ user }) => {
         }
     };
 
-    // 3. ACTION HANDLERS
+    // ─── ACTION HANDLERS ───
     const handleReviewClick = async () => {
         try {
             const res = await axios.get(`${process.env.REACT_APP_API_URL}/api/data/check-pending-changes`);
@@ -100,13 +261,21 @@ const SummaryView = ({ user }) => {
 
         const exportUrl = new URL(`${process.env.REACT_APP_API_URL}/api/data/export-excel`);
         exportUrl.searchParams.append('type', user?.type || 'user');
-        exportUrl.searchParams.append('allowedCustomers', user?.allowedCustomers?.join(',') || '');
+        exportUrl.searchParams.append('allowedCustomers', allowedCustomers.join(','));
         exportUrl.searchParams.append('showAll', showAll);
         exportUrl.searchParams.append('collapseView', result.isConfirmed);
 
+        // 🔥 FIX: Multi-select arrays properly encode karo
         Object.keys(filters).forEach(key => {
-            if (filters[key] && filters[key] !== 'All') exportUrl.searchParams.append(key, filters[key]);
+            const val = filters[key];
+            if (Array.isArray(val)) {
+                const cleaned = val.filter(v => v && v !== 'All');
+                if (cleaned.length > 0) exportUrl.searchParams.append(key, cleaned.join(','));
+            } else if (val && val !== 'All') {
+                exportUrl.searchParams.append(key, val);
+            }
         });
+
         window.location.href = exportUrl.toString();
     };
 
@@ -121,29 +290,21 @@ const SummaryView = ({ user }) => {
         } catch (err) { Swal.fire("Error", "Sync Failed", "error"); }
     };
 
-    // 4. EFFECTS
-    useEffect(() => {
-        const fetchOptions = async () => {
-            const params = new URLSearchParams({ ...filters, type: user?.type, allowedCustomers: user?.allowedCustomers?.join(',') || '' });
-            const res = await axios.get(`${process.env.REACT_APP_API_URL}/api/data/filter-options?${params.toString()}`);
-            setOptions(res.data);
-        };
-        if (user) fetchOptions();
-    }, [user, filters]);
-
-    const handleFilterChange = (name, value) => setFilters(prev => ({ ...prev, [name]: value }));
-    const handleReset = () => setFilters({ category_type: ['All'], bu: [], customer: [], loa_id: [], loa_name: [], wbs_type: [], wbs: [], wbs_description: [], active_inactive: ['Active'], period: [] });
     const handleKpiUpdate = useCallback((data) => setKpiData(data), []);
 
-    // 5. TABLE CONFIG
-    const queryParams = new URLSearchParams(filters);
-    queryParams.append('showAll', showAll);
-    queryParams.append('type', user?.type);
+    // ─── BUILD API URL FOR DATATABLE ───
+    // 🔥 FIX: Multi-select arrays ko comma join karke bhejo — blank table bug fix
+    const queryParams = buildQueryParams(filters, {
+        showAll,
+        type: user?.type,
+        allowedCustomers: allowedCustomers.join(',')
+    });
 
     const dynamicApiUrl = collapseView
         ? `${process.env.REACT_APP_API_URL}/api/data/wbs-summary-collapse?${queryParams.toString()}`
         : `${process.env.REACT_APP_API_URL}/api/data/wbs-summary?${queryParams.toString()}`;
 
+    // ─── TABLE COLUMNS ───
     const tableColumns = [
         { header: 'BU', field: 'bu' }, 
         { header: 'Customer', field: 'customer' }, 
@@ -159,6 +320,16 @@ const SummaryView = ({ user }) => {
         { header: 'EAC', field: 'eac' }, 
         { header: 'EAC vs ASBL', field: 'eac_vs_asbl' }
     ];
+
+    // ─── WBS TYPE warning banner check ───
+    // Banner hamesha show hoga — sirf warning text tab hide hoga
+    // jab valid WBS type select ho (Project ya AMC — Warranty/Other exclude)
+    const wbsTypeSelected = filters.wbs_type &&
+        filters.wbs_type.length > 0 &&
+        !filters.wbs_type.includes('All') &&
+        filters.wbs_type.some(v => !v.toLowerCase().includes('warranty/other'));
+
+    const wbsTypeOptions = options?.wbs_type || [];
 
     if (isReviewMode) return <ReviewChanges onBack={() => setIsReviewMode(false)} />;
 
@@ -180,19 +351,10 @@ const SummaryView = ({ user }) => {
                     <div className="flex-1"><KpiCards data={kpiData} /></div>
                     
                     <div className="flex gap-2 items-center">
-                        {/* <button onClick={() => window.location.reload()} className="p-3 bg-white border border-slate-200 rounded-2xl shadow-sm hover:bg-slate-50 text-slate-600 transition-all" title="Refresh Page">
-                            <HiOutlineRefresh className="text-lg"/>
-                        </button> */}
-                        
                         <button onClick={handleFullExport} className="border border-slate-300 border-t-4 border-t-blue-500 bg-white px-5 py-2 shadow-sm hover:shadow-md transition-all flex items-center gap-2 rounded-lg">
                             <HiOutlineUpload className="text-blue-600" /> 
                             <span className="text-sm font-semibold text-blue-700">Export</span>
                         </button>
-
-                        {/* <button onClick={() => setShowAll(!showAll)} className="border border-slate-300 border-t-4 border-t-orange-500 bg-white px-5 py-2 shadow-sm hover:shadow-md transition-all flex items-center gap-2 rounded-lg">
-                            <HiOutlineViewGrid className="text-orange-600" />
-                            <span className="text-sm font-semibold text-orange-700">{showAll ? 'Active' : 'All Categories'}</span>
-                        </button> */}
 
                         {(user?.type === 'admin' || user?.type === 'super_admin') && (
                             <>
@@ -207,34 +369,40 @@ const SummaryView = ({ user }) => {
                         )}
 
                         <button onClick={handleSave} className="border border-slate-800 border-t-4 border-t-black-600 bg-white px-5 py-2 shadow-sm hover:shadow-md transition-all flex items-center gap-2 rounded-lg">
-                                    <HiOutlineSave className="text-black-700" /> 
+                            <HiOutlineSave className="text-black-700" /> 
                             <span className="text-sm font-bold text-black">Save</span>
                         </button>
                     </div>
                 </div>
 
-                {/* WARNING BANNER */}
-                {(!filters.wbs_type || filters.wbs_type === 'All' || filters.wbs_type.length === 0 || String(filters.wbs_type).toLowerCase().includes('warranty/other')) && (
-
-                    <div className="mb-6 p-4 border border-orange-200 bg-orange-50/80 rounded-3xl text-sm text-orange-800 flex items-center gap-3 animate-pulse shadow-sm">
-
-                        <span className="mb-1 text-lg">⚠️</span>
-
-                        <div>
-
-                            <span className="font-extrabold uppercase tracking-wide mr-1.5">Please select a specific WBS Type (Project or AMC or Warranty/Other) to unlock ASBL & Non Committed values.</span>
-
-                            {String(filters.wbs_type).toLowerCase().includes('warranty/other')}
-
-                           
-
-                        </div>
-
+                {/* ─── WBS TYPE BANNER — hamesha visible, dropdown always synced with FilterBar ─── */}
+                <div className={`mb-6 p-4 rounded-3xl text-sm flex flex-wrap items-center gap-3 shadow-sm border transition-colors duration-300
+                    ${wbsTypeSelected
+                        ? 'border-green-200 bg-green-50/80 text-green-800'
+                        : 'border-orange-200 bg-orange-50/80 text-orange-800'
+                    }`}>
+                    <span className="text-lg flex-shrink-0">{wbsTypeSelected ? '✅' : '⚠️'}</span>
+                    <div className="flex flex-wrap items-center gap-2 flex-1">
+                        {!wbsTypeSelected && (
+                            <span className="font-extrabold uppercase tracking-wide">
+                                Please select a specific WBS Type to unlock ASBL &amp; Non Committed values.
+                            </span>
+                        )}
+                        {wbsTypeSelected && (
+                            <span className="font-bold uppercase tracking-wide">
+                                WBS Type selected: <strong>{filters.wbs_type.join(', ')}</strong>
+                            </span>
+                        )}
+                        {/* 🔥 Inline WBS Type Dropdown — HAMESHA visible, FilterBar ke saath fully synced */}
+                        <WbsTypeInlineDropdown
+                            options={wbsTypeOptions}
+                            selected={filters.wbs_type || []}
+                            onChange={onFilterChange}
+                        />
                     </div>
+                </div>
 
-                )}
-
-                {/* DATA TABLE */}
+                {/* ─── DATA TABLE ─── */}
                 <div className="rounded-[1.5rem] overflow-hidden shadow-xl border border-white bg-white w-full">
                     <DataTable 
                         title="" 
@@ -243,8 +411,8 @@ const SummaryView = ({ user }) => {
                         filters={filters} 
                         onKpiUpdate={handleKpiUpdate} 
                         collapseView={collapseView} 
-                        showSaveButton={false} // Hidden inside table
-                        user={user} 
+                        showSaveButton={false}
+                        user={user}
                     />
                 </div>
 
@@ -257,10 +425,8 @@ const SummaryView = ({ user }) => {
             </div>
 
             {/* 🔵 POWER BI STYLE SIDEBAR */}
-            <div 
-                className={`fixed right-0 top-0 h-full bg-white border-l border-slate-200 transition-all duration-300 z-[2001] shadow-2xl flex ${isSidebarOpen ? 'w-[380px]' : 'w-[40px]'}`}
-            >
-                {/* 1. NARROW HANDLE */}
+            <div className={`fixed right-0 top-0 h-full bg-white border-l border-slate-200 transition-all duration-300 z-[2001] shadow-2xl flex ${isSidebarOpen ? 'w-[380px]' : 'w-[40px]'}`}>
+                
                 <div 
                     onClick={() => setIsSidebarOpen(!isSidebarOpen)}
                     className={`h-full flex flex-col items-center pt-8 cursor-pointer hover:bg-slate-50 transition-colors ${isSidebarOpen ? 'w-[40px] border-r border-slate-100' : 'w-full'}`}
@@ -277,24 +443,33 @@ const SummaryView = ({ user }) => {
                     {isSidebarOpen && <HiChevronRight className="text-slate-300 mt-auto mb-10 text-xl" />}
                 </div>
 
-                {/* 2. EXPANDED CONTENT */}
                 {isSidebarOpen && (
                     <div className="flex-1 flex flex-col animate-in fade-in duration-300">
                         <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
                             <span className="font-black text-lg text-slate-800 tracking-tight">Filters Pane</span>
-                            <button onClick={handleReset} className="text-[11px] font-black uppercase text-red-500 hover:underline">Reset All</button>
+                            <button onClick={onResetFilters} className="text-[11px] font-black uppercase text-red-500 hover:underline">Reset All</button>
                         </div>
                         <div className="flex-1 overflow-y-auto p-6 custom-scrollbar">
-                            <FilterBar filters={filters} options={options} onFilterChange={handleFilterChange} onReset={handleReset} />
+                            <FilterBar
+                                filters={filters}
+                                options={options}
+                                onFilterChange={onFilterChange}
+                                onReset={onResetFilters}
+                            />
                         </div>
                         <div className="p-5 border-t border-slate-100 bg-white shadow-[0_-4px_20px_rgba(0,0,0,0.03)]">
-                            <button onClick={() => setIsSidebarOpen(false)} className="w-full py-4 bg-blue-600 text-white rounded-2xl font-black text-xs uppercase shadow-lg shadow-blue-100 hover:bg-blue-700 transition-all active:scale-95">Apply Filters</button>
+                            <button
+                                onClick={() => setIsSidebarOpen(false)}
+                                className="w-full py-4 bg-blue-600 text-white rounded-2xl font-black text-xs uppercase shadow-lg shadow-blue-100 hover:bg-blue-700 transition-all active:scale-95"
+                            >
+                                Apply Filters
+                            </button>
                         </div>
                     </div>
                 )}
             </div>
 
-            <AsblModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} onSubmit={(data) => setIsModalOpen(false)} />
+            <AsblModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} onSubmit={() => setIsModalOpen(false)} />
         </div>
     );
 };

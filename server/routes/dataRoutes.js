@@ -129,4 +129,6 @@ router.get('/admin/master-customers', adminController.getAllMasterCustomers);
 
 // router.get('/test-ptd-seeding', projectController.testPtdSeeding);
 
+router.get('/add-project-options', projectController.getAddProjectOptions);
+
 module.exports = router;
