@@ -1,6 +1,7 @@
 const db = require('../config/db');
 const xlsx = require('xlsx');
-const pgFormat = require('pg-format'); // 🔥 Zaroori: Aapke db.js mein already h
+const pgFormat = require('pg-format');
+const { triggerAutoSync } = require('./cronController');
 
 const formatExcelDate = (excelDate) => {
     if (!excelDate) return null;
@@ -110,6 +111,8 @@ exports.uploadPtdData = async (req, res) => {
             `, loaList);
             await db.query(syncSql);
         }
+
+        triggerAutoSync('ptd_uploaded');
 
         res.status(200).json({ message: "Everything Uploaded and Synced Successfully!" });
     } catch (error) { 

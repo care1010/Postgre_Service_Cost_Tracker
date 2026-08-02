@@ -1,4 +1,5 @@
 const db = require('../config/db'); 
+const { triggerAutoSync } = require('./cronController');
 
 // --- Helper: RLS logic (Postgres Style) ---
 const applyRLSLocal = (userType, allowedCustomers, conditions, params) => {
@@ -118,7 +119,10 @@ exports.updateManualAsbl = async (req, res) => {
             WHERE loa_id = ? AND wbs_type = ?`, [loa_id, wbs_type]
         );
 
-        await connection.commit(); 
+        await connection.commit();
+
+        triggerAutoSync('asbl_updated');
+        
         res.status(200).json({ message: "ASBL Updated Successfully!" });
     } catch (error) {
         await connection.rollback();

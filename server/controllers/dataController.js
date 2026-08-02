@@ -1,4 +1,5 @@
 const db = require('../config/db');
+const { triggerAutoSync } = require('./cronController');
 const ExcelJS = require('exceljs');
 const XLSX = require('xlsx');
 const fs = require('fs');
@@ -493,183 +494,272 @@ exports.getWbsSummaryCollapse = async (req, res) => {
 // ==============================
 // 5. FULL REFRESH (PostgreSQL Native - Blazing Fast)
 // ==============================
+// exports.fullRefresh = async (req, res) => {
+//     try {
+//         console.log("🚀 Starting Sync (PTD & OC Corrected - PostgreSQL Version)...");
+
+//         // Phase 1: PTD Staging
+//         await db.query(`DROP TABLE IF EXISTS stg_cj74_agg`);
+//         await db.query(`
+//             CREATE TABLE stg_cj74_agg AS
+//             SELECT
+//                 TRIM(REPLACE(REPLACE(REPLACE(object_1, ' ', ''), CHR(10), ''), CHR(13), '')) AS clean_wbs,
+//                 cost_element,
+//                 TRIM(CONCAT(year, '-P', LPAD(TRIM(per), 3, '0'))) AS period,
+//                 SUM(
+//                     CASE 
+//                         WHEN TRIM(val_in_rc::text) ~ '^[+-]?[0-9]*\.?[0-9]+$' THEN CAST(TRIM(val_in_rc::text) AS NUMERIC(18,2))
+//                         ELSE 0 
+//                     END / 1000
+//                 ) AS ptd_val
+//             FROM cj74_new 
+//             WHERE year IS NOT NULL AND per IS NOT NULL 
+//               AND TRIM(year::text) != 'NULL' AND TRIM(per::text) != 'NULL'
+//               AND TRIM(year::text) != '' AND TRIM(per::text) != ''
+//             GROUP BY 1, 2, 3
+//         `);
+//         await db.query("CREATE INDEX idx_stg_cj74_wbs ON stg_cj74_agg (clean_wbs)");
+//         await db.query("CREATE INDEX idx_stg_cj74_ce ON stg_cj74_agg (cost_element)");
+
+//         // Phase 2: OC Staging
+//         await db.query(`DROP TABLE IF EXISTS stg_cji5_agg`);
+//         await db.query(`
+//             CREATE TABLE stg_cji5_agg AS
+//             SELECT
+//                 TRIM(REPLACE(REPLACE(REPLACE(wbs_element, ' ', ''), CHR(10), ''), CHR(13), '')) AS clean_wbs,
+//                 TRIM(cost_element) AS cost_element,
+//                 SUM(
+//                     CASE 
+//                         WHEN TRIM(val_in_rep_cur::text) ~ '^[+-]?[0-9]*\.?[0-9]+$' THEN CAST(TRIM(val_in_rep_cur::text) AS NUMERIC(18,2))
+//                         ELSE 0 
+//                     END / 1000
+//                 ) AS oc_val
+//             FROM cji5_new 
+//             GROUP BY 1, 2
+//         `);
+//         await db.query("CREATE INDEX idx_stg_cji5_wbs ON stg_cji5_agg (clean_wbs)");
+//         await db.query("CREATE INDEX idx_stg_cji5_ce ON stg_cji5_agg (cost_element)");
+
+//         // Phase 3: Master Mapping
+//         await db.query(`DROP TABLE IF EXISTS stg_master_mapping`);
+//         await db.query(`
+//             CREATE TABLE stg_master_mapping AS
+//             SELECT
+//                 TRIM(m.single_wbs) AS single_wbs,
+//                 m.bu, m.customer, m.loa_id, m.loa_name, m.merged_wbs, m.wbs_type, m.wbs_description,
+//                 cm.categories, cm.cost_element, cm.cost_revenue AS mapped_cost_revenue,
+//                 TRIM(CONCAT(COALESCE(m.merged_wbs, ''), '-', COALESCE(cm.categories, ''))) AS "Merged_wbs_categories"
+//             FROM wbs_loa_id_mapping1 m
+//             CROSS JOIN (SELECT DISTINCT cost_element, categories, cost_revenue FROM cost_mapping) cm
+//         `);
+//         await db.query("CREATE INDEX idx_stg_mm_wbs ON stg_master_mapping (single_wbs)");
+//         await db.query("CREATE INDEX idx_stg_mm_ce ON stg_master_mapping (cost_element)");
+//         await db.query('CREATE INDEX idx_stg_mm_cat ON stg_master_mapping ("Merged_wbs_categories")');
+
+//         // Phase 4: Final Table Fill
+//         await db.query("TRUNCATE TABLE final_dashboard_table");
+
+//         const finalInsertSql = `
+//             INSERT INTO final_dashboard_table 
+//             (id, bu, customer, loa_id, loa_name, cost_revenue, categories, merged_wbs, active_inactive, 
+//              asbl, asbl_amc, asbl_project, asbl_warranty, asbl_loa, 
+//              non_committed, non_committed_amc, non_committed_project, non_committed_warranty,
+//              non_committed_editable, non_committed_editable_amc, non_committed_editable_project, non_committed_editable_warranty,
+//              period, ptd, wbs_element_single, wbs_type, wbs_description, 
+//              open_commitment_KEUR, eac, eac_vs_asbl, "Merged_wbs_categories", updated_by, updated_at)
+            
+//             SELECT 
+//                 id, bu, customer, loa_id, loa_name, cost_revenue, categories, merged_wbs, active_inactive,
+                
+//                 CASE WHEN rank_project = 1 THEN asbl ELSE 0 END,
+//                 CASE WHEN rank_project = 1 THEN asbl_amc ELSE 0 END,
+//                 CASE WHEN rank_project = 1 THEN asbl_project ELSE 0 END,
+//                 CASE WHEN rank_project = 1 THEN asbl_warranty ELSE 0 END,
+//                 CASE WHEN rank_project = 1 THEN asbl_loa ELSE 0 END,
+                
+//                 CASE WHEN rank_project = 1 THEN non_committed ELSE 0 END,
+//                 CASE WHEN rank_project = 1 THEN non_committed_amc ELSE 0 END,
+//                 CASE WHEN rank_project = 1 THEN non_committed_project ELSE 0 END,
+//                 CASE WHEN rank_project = 1 THEN non_committed_warranty ELSE 0 END,
+                
+//                 CASE WHEN rank_project = 1 THEN non_committed_editable ELSE 0 END,
+//                 CASE WHEN rank_project = 1 THEN non_committed_editable_amc ELSE 0 END,
+//                 CASE WHEN rank_project = 1 THEN non_committed_editable_project ELSE 0 END,
+//                 CASE WHEN rank_project = 1 THEN non_committed_editable_warranty ELSE 0 END,
+                
+//                 period, ptd, wbs_element_single, wbs_type, wbs_description,
+                
+//                 CASE WHEN rank_oc = 1 THEN oc_val_raw ELSE 0 END,
+                
+//                 (ptd + CASE WHEN rank_oc = 1 THEN oc_val_raw ELSE 0 END + CASE WHEN rank_project = 1 THEN non_committed_editable ELSE 0 END),
+//                 (CASE WHEN rank_project = 1 THEN asbl ELSE 0 END - (ptd + CASE WHEN rank_oc = 1 THEN oc_val_raw ELSE 0 END + CASE WHEN rank_project = 1 THEN non_committed_editable ELSE 0 END)),
+                
+//                 "Merged_wbs_categories", updated_by, updated_at
+//             FROM (
+//                 SELECT 
+//                     COALESCE(s.id::text, CONCAT('NEW-', m."Merged_wbs_categories")) AS id,
+//                     COALESCE(s.bu, m.bu) AS bu, COALESCE(s.customer, m.customer) AS customer, 
+//                     COALESCE(s.loa_id, m.loa_id) AS loa_id, COALESCE(s.loa_name, m.loa_name) AS loa_name,
+//                     COALESCE(s.cost_revenue, m.mapped_cost_revenue) AS cost_revenue, m.categories, 
+//                     COALESCE(s.merged_wbs, m.merged_wbs) AS merged_wbs, COALESCE(s.active_inactive, 'Active') AS active_inactive,
+//                     COALESCE(s.asbl, 0) AS asbl, COALESCE(s.asbl_amc, 0) AS asbl_amc, COALESCE(s.asbl_project, 0) AS asbl_project, COALESCE(s.asbl_warranty, 0) AS asbl_warranty, COALESCE(s.asbl_loa, 0) AS asbl_loa,
+//                     COALESCE(s.non_committed, 0) AS non_committed, COALESCE(s.non_committed_amc, 0) AS non_committed_amc, COALESCE(s.non_committed_project, 0) AS non_committed_project, COALESCE(s.non_committed_warranty, 0) AS non_committed_warranty,
+//                     COALESCE(s.non_committed_editable, 0) AS non_committed_editable, COALESCE(s.non_committed_editable_amc, 0) AS non_committed_editable_amc, COALESCE(s.non_committed_editable_project, 0) AS non_committed_editable_project, COALESCE(s.non_committed_editable_warranty, 0) AS non_committed_editable_warranty,
+//                     cj.period, COALESCE(cj.ptd_val, 0) AS ptd, m.single_wbs AS wbs_element_single, m.wbs_type, m.wbs_description,
+//                     COALESCE(ci.oc_val, 0) AS oc_val_raw, m."Merged_wbs_categories", s.updated_by, s.updated_at,
+                    
+//                     ROW_NUMBER() OVER (PARTITION BY m.single_wbs, m.cost_element ORDER BY cj.period DESC) AS rank_oc,
+//                     ROW_NUMBER() OVER (PARTITION BY m."Merged_wbs_categories" ORDER BY cj.period DESC) AS rank_project
+//                 FROM stg_master_mapping m
+//                 LEFT JOIN stg_cj74_agg cj ON (m.single_wbs = cj.clean_wbs AND m.cost_element = cj.cost_element)
+//                 LEFT JOIN stg_cji5_agg ci ON (m.single_wbs = ci.clean_wbs AND m.cost_element = ci.cost_element)
+//                 LEFT JOIN summary s ON (m."Merged_wbs_categories" = s."Merged_wbs_category")
+//                 WHERE cj.ptd_val IS NOT NULL OR ci.oc_val IS NOT NULL OR s.asbl > 0
+//             ) AS final_src
+//         `;
+        
+//         await db.query(finalInsertSql);
+
+//         // Phase 5: Flush Cache & Sync Drilldowns
+//         filterCache.flushAll(); 
+//         if (typeof exports.syncDrilldownTables === 'function') {
+//             await exports.syncDrilldownTables();
+//         }
+
+//         // Phase 6: Pre-Aggregated Table for Blazing Fast Summary
+//         await db.query(`DROP TABLE IF EXISTS summary_matrix_aggregated`);
+//         await db.query(`
+//             CREATE TABLE summary_matrix_aggregated AS
+//             SELECT 
+//                 t.bu, t.customer, t.loa_id, t.loa_name, t.cost_revenue, t.categories, 
+//                 t."Merged_wbs_categories",
+//                 ROUND(MAX(COALESCE(static.asbl_val, 0)), 2) as asbl,
+//                 ROUND(MAX(COALESCE(static.asbl_loa_val, 0)), 2) as asbl_loa,
+//                 ROUND(SUM(t.ptd_val), 2) as ptd, 
+//                 ROUND(SUM(t.oc_val), 2) as open_commitment_KEUR, 
+//                 ROUND(SUM(t.oc_val), 2) as open_commitment,
+//                 ROUND(MAX(COALESCE(static.nc_val, 0)), 2) as non_committed_editable, 
+//                 ROUND(MAX(COALESCE(static.nc_val, 0)), 2) as non_committed, 
+//                 ROUND(SUM(t.ptd_val) + SUM(t.oc_val) + MAX(COALESCE(static.nc_val, 0)), 2) as eac,
+//                 ROUND(MAX(COALESCE(static.asbl_val, 0)) - (SUM(t.ptd_val) + SUM(t.oc_val) + MAX(COALESCE(static.nc_val, 0))), 2) as eac_vs_asbl
+//             FROM (
+//                 SELECT 
+//                     bu, customer, loa_id, loa_name, cost_revenue, categories, "Merged_wbs_categories",
+//                     ptd as ptd_val, open_commitment_KEUR as oc_val
+//                 FROM final_dashboard_table
+//             ) as t
+//             LEFT JOIN (
+//                 SELECT 
+//                     "Merged_wbs_categories", 
+//                     MAX(asbl) as asbl_val, 
+//                     MAX(asbl_loa) as asbl_loa_val,
+//                     MAX(non_committed_editable) as nc_val
+//                 FROM final_dashboard_table
+//                 GROUP BY "Merged_wbs_categories"
+//             ) as static ON t."Merged_wbs_categories" = static."Merged_wbs_categories"
+//             GROUP BY t.bu, t.customer, t.loa_id, t.loa_name, t.cost_revenue, t.categories, t."Merged_wbs_categories"
+//         `);
+//         await db.query(`CREATE INDEX idx_sma_loa ON summary_matrix_aggregated (loa_id)`);
+//         await db.query(`CREATE INDEX idx_sma_bu ON summary_matrix_aggregated (bu)`);
+//         filterCache.flushAll(); // Clear old cache
+//         console.log("⚡ Default Page 1 Pre-calculated & Saved in RAM for Instant User Load!");
+
+//         res.status(200).json({ message: "Sync Success! Everything is now accurate and Postgres-compatible." });
+
+//     } catch (error) {
+//         console.error("Full Refresh Error:", error);
+//         res.status(500).json({ error: error.message });
+//     }
+// };
+
+
+// 🔥 NEW: STANDALONE CORE ENGINE (Can be called by Cron or API)
+exports.runFullSyncCore = async () => {
+    console.log("🚀 Starting Sync Engine (PostgreSQL)...");
+
+    // Phase 1: PTD Staging
+    await db.query(`DROP TABLE IF EXISTS stg_cj74_agg`);
+    await db.query(`
+        CREATE TABLE stg_cj74_agg AS
+        SELECT TRIM(REPLACE(REPLACE(REPLACE(object_1, ' ', ''), CHR(10), ''), CHR(13), '')) AS clean_wbs, cost_element,
+            TRIM(CONCAT(year, '-P', LPAD(TRIM(per), 3, '0'))) AS period,
+            SUM(CASE WHEN TRIM(val_in_rc::text) ~ '^[+-]?[0-9]*\.?[0-9]+$' THEN CAST(TRIM(val_in_rc::text) AS NUMERIC(18,2)) ELSE 0 END / 1000) AS ptd_val
+        FROM cj74_new 
+        WHERE year IS NOT NULL AND per IS NOT NULL AND TRIM(year::text) != 'NULL' AND TRIM(per::text) != 'NULL' AND TRIM(year::text) != '' AND TRIM(per::text) != ''
+        GROUP BY 1, 2, 3
+    `);
+    await db.query("CREATE INDEX idx_stg_cj74_wbs ON stg_cj74_agg (clean_wbs)");
+    await db.query("CREATE INDEX idx_stg_cj74_ce ON stg_cj74_agg (cost_element)");
+
+    // Phase 2: OC Staging
+    await db.query(`DROP TABLE IF EXISTS stg_cji5_agg`);
+    await db.query(`
+        CREATE TABLE stg_cji5_agg AS
+        SELECT TRIM(REPLACE(REPLACE(REPLACE(wbs_element, ' ', ''), CHR(10), ''), CHR(13), '')) AS clean_wbs, TRIM(cost_element) AS cost_element,
+            SUM(CASE WHEN TRIM(val_in_rep_cur::text) ~ '^[+-]?[0-9]*\.?[0-9]+$' THEN CAST(TRIM(val_in_rep_cur::text) AS NUMERIC(18,2)) ELSE 0 END / 1000) AS oc_val
+        FROM cji5_new 
+        GROUP BY 1, 2
+    `);
+    await db.query("CREATE INDEX idx_stg_cji5_wbs ON stg_cji5_agg (clean_wbs)");
+    await db.query("CREATE INDEX idx_stg_cji5_ce ON stg_cji5_agg (cost_element)");
+
+    // Phase 3: Master Mapping
+    await db.query(`DROP TABLE IF EXISTS stg_master_mapping`);
+    await db.query(`
+        CREATE TABLE stg_master_mapping AS
+        SELECT TRIM(m.single_wbs) AS single_wbs, m.bu, m.customer, m.loa_id, m.loa_name, m.merged_wbs, m.wbs_type, m.wbs_description, cm.categories, cm.cost_element, cm.cost_revenue AS mapped_cost_revenue,
+            TRIM(CONCAT(COALESCE(m.merged_wbs, ''), '-', COALESCE(cm.categories, ''))) AS "Merged_wbs_categories"
+        FROM wbs_loa_id_mapping1 m CROSS JOIN (SELECT DISTINCT cost_element, categories, cost_revenue FROM cost_mapping) cm
+    `);
+    await db.query("CREATE INDEX idx_stg_mm_wbs ON stg_master_mapping (single_wbs)");
+    await db.query("CREATE INDEX idx_stg_mm_ce ON stg_master_mapping (cost_element)");
+    await db.query('CREATE INDEX idx_stg_mm_cat ON stg_master_mapping ("Merged_wbs_categories")');
+
+    // Phase 4: Final Table Fill
+    await db.query("TRUNCATE TABLE final_dashboard_table");
+    const finalInsertSql = `
+        INSERT INTO final_dashboard_table 
+        (id, bu, customer, loa_id, loa_name, cost_revenue, categories, merged_wbs, active_inactive, 
+         asbl, asbl_amc, asbl_project, asbl_warranty, asbl_loa, non_committed, non_committed_amc, non_committed_project, non_committed_warranty,
+         non_committed_editable, non_committed_editable_amc, non_committed_editable_project, non_committed_editable_warranty,
+         period, ptd, wbs_element_single, wbs_type, wbs_description, open_commitment_KEUR, eac, eac_vs_asbl, "Merged_wbs_categories", updated_by, updated_at)
+        SELECT id, bu, customer, loa_id, loa_name, cost_revenue, categories, merged_wbs, active_inactive,
+            CASE WHEN rank_project = 1 THEN asbl ELSE 0 END, CASE WHEN rank_project = 1 THEN asbl_amc ELSE 0 END, CASE WHEN rank_project = 1 THEN asbl_project ELSE 0 END, CASE WHEN rank_project = 1 THEN asbl_warranty ELSE 0 END, CASE WHEN rank_project = 1 THEN asbl_loa ELSE 0 END,
+            CASE WHEN rank_project = 1 THEN non_committed ELSE 0 END, CASE WHEN rank_project = 1 THEN non_committed_amc ELSE 0 END, CASE WHEN rank_project = 1 THEN non_committed_project ELSE 0 END, CASE WHEN rank_project = 1 THEN non_committed_warranty ELSE 0 END,
+            CASE WHEN rank_project = 1 THEN non_committed_editable ELSE 0 END, CASE WHEN rank_project = 1 THEN non_committed_editable_amc ELSE 0 END, CASE WHEN rank_project = 1 THEN non_committed_editable_project ELSE 0 END, CASE WHEN rank_project = 1 THEN non_committed_editable_warranty ELSE 0 END,
+            period, ptd, wbs_element_single, wbs_type, wbs_description, CASE WHEN rank_oc = 1 THEN oc_val_raw ELSE 0 END,
+            (ptd + CASE WHEN rank_oc = 1 THEN oc_val_raw ELSE 0 END + CASE WHEN rank_project = 1 THEN non_committed_editable ELSE 0 END),
+            (CASE WHEN rank_project = 1 THEN asbl ELSE 0 END - (ptd + CASE WHEN rank_oc = 1 THEN oc_val_raw ELSE 0 END + CASE WHEN rank_project = 1 THEN non_committed_editable ELSE 0 END)),
+            "Merged_wbs_categories", updated_by, updated_at
+        FROM (
+            SELECT COALESCE(s.id::text, CONCAT('NEW-', m."Merged_wbs_categories")) AS id, COALESCE(s.bu, m.bu) AS bu, COALESCE(s.customer, m.customer) AS customer, COALESCE(s.loa_id, m.loa_id) AS loa_id, COALESCE(s.loa_name, m.loa_name) AS loa_name, COALESCE(s.cost_revenue, m.mapped_cost_revenue) AS cost_revenue, m.categories, COALESCE(s.merged_wbs, m.merged_wbs) AS merged_wbs, COALESCE(s.active_inactive, 'Active') AS active_inactive,
+                COALESCE(s.asbl, 0) AS asbl, COALESCE(s.asbl_amc, 0) AS asbl_amc, COALESCE(s.asbl_project, 0) AS asbl_project, COALESCE(s.asbl_warranty, 0) AS asbl_warranty, COALESCE(s.asbl_loa, 0) AS asbl_loa, COALESCE(s.non_committed, 0) AS non_committed, COALESCE(s.non_committed_amc, 0) AS non_committed_amc, COALESCE(s.non_committed_project, 0) AS non_committed_project, COALESCE(s.non_committed_warranty, 0) AS non_committed_warranty, COALESCE(s.non_committed_editable, 0) AS non_committed_editable, COALESCE(s.non_committed_editable_amc, 0) AS non_committed_editable_amc, COALESCE(s.non_committed_editable_project, 0) AS non_committed_editable_project, COALESCE(s.non_committed_editable_warranty, 0) AS non_committed_editable_warranty,
+                cj.period, COALESCE(cj.ptd_val, 0) AS ptd, m.single_wbs AS wbs_element_single, m.wbs_type, m.wbs_description, COALESCE(ci.oc_val, 0) AS oc_val_raw, m."Merged_wbs_categories", s.updated_by, s.updated_at,
+                ROW_NUMBER() OVER (PARTITION BY m.single_wbs, m.cost_element ORDER BY cj.period DESC) AS rank_oc, ROW_NUMBER() OVER (PARTITION BY m."Merged_wbs_categories" ORDER BY cj.period DESC) AS rank_project
+            FROM stg_master_mapping m LEFT JOIN stg_cj74_agg cj ON (m.single_wbs = cj.clean_wbs AND m.cost_element = cj.cost_element) LEFT JOIN stg_cji5_agg ci ON (m.single_wbs = ci.clean_wbs AND m.cost_element = ci.cost_element) LEFT JOIN summary s ON (m."Merged_wbs_categories" = s."Merged_wbs_category")
+            WHERE cj.ptd_val IS NOT NULL OR ci.oc_val IS NOT NULL OR s.asbl > 0
+        ) AS final_src
+    `;
+    await db.query(finalInsertSql);
+
+    // Phase 5: Flush Cache & Sync Drilldowns
+    filterCache.flushAll(); 
+    if (typeof exports.syncDrilldownTables === 'function') {
+        await exports.syncDrilldownTables();
+    }
+};
+
+// 5. FULL REFRESH (API Wrapper)
 exports.fullRefresh = async (req, res) => {
     try {
-        console.log("🚀 Starting Sync (PTD & OC Corrected - PostgreSQL Version)...");
-
-        // Phase 1: PTD Staging
-        await db.query(`DROP TABLE IF EXISTS stg_cj74_agg`);
-        await db.query(`
-            CREATE TABLE stg_cj74_agg AS
-            SELECT
-                TRIM(REPLACE(REPLACE(REPLACE(object_1, ' ', ''), CHR(10), ''), CHR(13), '')) AS clean_wbs,
-                cost_element,
-                TRIM(CONCAT(year, '-P', LPAD(TRIM(per), 3, '0'))) AS period,
-                SUM(
-                    CASE 
-                        WHEN TRIM(val_in_rc::text) ~ '^[+-]?[0-9]*\.?[0-9]+$' THEN CAST(TRIM(val_in_rc::text) AS NUMERIC(18,2))
-                        ELSE 0 
-                    END / 1000
-                ) AS ptd_val
-            FROM cj74_new 
-            WHERE year IS NOT NULL AND per IS NOT NULL 
-              AND TRIM(year::text) != 'NULL' AND TRIM(per::text) != 'NULL'
-              AND TRIM(year::text) != '' AND TRIM(per::text) != ''
-            GROUP BY 1, 2, 3
-        `);
-        await db.query("CREATE INDEX idx_stg_cj74_wbs ON stg_cj74_agg (clean_wbs)");
-        await db.query("CREATE INDEX idx_stg_cj74_ce ON stg_cj74_agg (cost_element)");
-
-        // Phase 2: OC Staging
-        await db.query(`DROP TABLE IF EXISTS stg_cji5_agg`);
-        await db.query(`
-            CREATE TABLE stg_cji5_agg AS
-            SELECT
-                TRIM(REPLACE(REPLACE(REPLACE(wbs_element, ' ', ''), CHR(10), ''), CHR(13), '')) AS clean_wbs,
-                TRIM(cost_element) AS cost_element,
-                SUM(
-                    CASE 
-                        WHEN TRIM(val_in_rep_cur::text) ~ '^[+-]?[0-9]*\.?[0-9]+$' THEN CAST(TRIM(val_in_rep_cur::text) AS NUMERIC(18,2))
-                        ELSE 0 
-                    END / 1000
-                ) AS oc_val
-            FROM cji5_new 
-            GROUP BY 1, 2
-        `);
-        await db.query("CREATE INDEX idx_stg_cji5_wbs ON stg_cji5_agg (clean_wbs)");
-        await db.query("CREATE INDEX idx_stg_cji5_ce ON stg_cji5_agg (cost_element)");
-
-        // Phase 3: Master Mapping
-        await db.query(`DROP TABLE IF EXISTS stg_master_mapping`);
-        await db.query(`
-            CREATE TABLE stg_master_mapping AS
-            SELECT
-                TRIM(m.single_wbs) AS single_wbs,
-                m.bu, m.customer, m.loa_id, m.loa_name, m.merged_wbs, m.wbs_type, m.wbs_description,
-                cm.categories, cm.cost_element, cm.cost_revenue AS mapped_cost_revenue,
-                TRIM(CONCAT(COALESCE(m.merged_wbs, ''), '-', COALESCE(cm.categories, ''))) AS "Merged_wbs_categories"
-            FROM wbs_loa_id_mapping1 m
-            CROSS JOIN (SELECT DISTINCT cost_element, categories, cost_revenue FROM cost_mapping) cm
-        `);
-        await db.query("CREATE INDEX idx_stg_mm_wbs ON stg_master_mapping (single_wbs)");
-        await db.query("CREATE INDEX idx_stg_mm_ce ON stg_master_mapping (cost_element)");
-        await db.query('CREATE INDEX idx_stg_mm_cat ON stg_master_mapping ("Merged_wbs_categories")');
-
-        // Phase 4: Final Table Fill
-        await db.query("TRUNCATE TABLE final_dashboard_table");
-
-        const finalInsertSql = `
-            INSERT INTO final_dashboard_table 
-            (id, bu, customer, loa_id, loa_name, cost_revenue, categories, merged_wbs, active_inactive, 
-             asbl, asbl_amc, asbl_project, asbl_warranty, asbl_loa, 
-             non_committed, non_committed_amc, non_committed_project, non_committed_warranty,
-             non_committed_editable, non_committed_editable_amc, non_committed_editable_project, non_committed_editable_warranty,
-             period, ptd, wbs_element_single, wbs_type, wbs_description, 
-             open_commitment_KEUR, eac, eac_vs_asbl, "Merged_wbs_categories", updated_by, updated_at)
-            
-            SELECT 
-                id, bu, customer, loa_id, loa_name, cost_revenue, categories, merged_wbs, active_inactive,
-                
-                CASE WHEN rank_project = 1 THEN asbl ELSE 0 END,
-                CASE WHEN rank_project = 1 THEN asbl_amc ELSE 0 END,
-                CASE WHEN rank_project = 1 THEN asbl_project ELSE 0 END,
-                CASE WHEN rank_project = 1 THEN asbl_warranty ELSE 0 END,
-                CASE WHEN rank_project = 1 THEN asbl_loa ELSE 0 END,
-                
-                CASE WHEN rank_project = 1 THEN non_committed ELSE 0 END,
-                CASE WHEN rank_project = 1 THEN non_committed_amc ELSE 0 END,
-                CASE WHEN rank_project = 1 THEN non_committed_project ELSE 0 END,
-                CASE WHEN rank_project = 1 THEN non_committed_warranty ELSE 0 END,
-                
-                CASE WHEN rank_project = 1 THEN non_committed_editable ELSE 0 END,
-                CASE WHEN rank_project = 1 THEN non_committed_editable_amc ELSE 0 END,
-                CASE WHEN rank_project = 1 THEN non_committed_editable_project ELSE 0 END,
-                CASE WHEN rank_project = 1 THEN non_committed_editable_warranty ELSE 0 END,
-                
-                period, ptd, wbs_element_single, wbs_type, wbs_description,
-                
-                CASE WHEN rank_oc = 1 THEN oc_val_raw ELSE 0 END,
-                
-                (ptd + CASE WHEN rank_oc = 1 THEN oc_val_raw ELSE 0 END + CASE WHEN rank_project = 1 THEN non_committed_editable ELSE 0 END),
-                (CASE WHEN rank_project = 1 THEN asbl ELSE 0 END - (ptd + CASE WHEN rank_oc = 1 THEN oc_val_raw ELSE 0 END + CASE WHEN rank_project = 1 THEN non_committed_editable ELSE 0 END)),
-                
-                "Merged_wbs_categories", updated_by, updated_at
-            FROM (
-                SELECT 
-                    COALESCE(s.id::text, CONCAT('NEW-', m."Merged_wbs_categories")) AS id,
-                    COALESCE(s.bu, m.bu) AS bu, COALESCE(s.customer, m.customer) AS customer, 
-                    COALESCE(s.loa_id, m.loa_id) AS loa_id, COALESCE(s.loa_name, m.loa_name) AS loa_name,
-                    COALESCE(s.cost_revenue, m.mapped_cost_revenue) AS cost_revenue, m.categories, 
-                    COALESCE(s.merged_wbs, m.merged_wbs) AS merged_wbs, COALESCE(s.active_inactive, 'Active') AS active_inactive,
-                    COALESCE(s.asbl, 0) AS asbl, COALESCE(s.asbl_amc, 0) AS asbl_amc, COALESCE(s.asbl_project, 0) AS asbl_project, COALESCE(s.asbl_warranty, 0) AS asbl_warranty, COALESCE(s.asbl_loa, 0) AS asbl_loa,
-                    COALESCE(s.non_committed, 0) AS non_committed, COALESCE(s.non_committed_amc, 0) AS non_committed_amc, COALESCE(s.non_committed_project, 0) AS non_committed_project, COALESCE(s.non_committed_warranty, 0) AS non_committed_warranty,
-                    COALESCE(s.non_committed_editable, 0) AS non_committed_editable, COALESCE(s.non_committed_editable_amc, 0) AS non_committed_editable_amc, COALESCE(s.non_committed_editable_project, 0) AS non_committed_editable_project, COALESCE(s.non_committed_editable_warranty, 0) AS non_committed_editable_warranty,
-                    cj.period, COALESCE(cj.ptd_val, 0) AS ptd, m.single_wbs AS wbs_element_single, m.wbs_type, m.wbs_description,
-                    COALESCE(ci.oc_val, 0) AS oc_val_raw, m."Merged_wbs_categories", s.updated_by, s.updated_at,
-                    
-                    ROW_NUMBER() OVER (PARTITION BY m.single_wbs, m.cost_element ORDER BY cj.period DESC) AS rank_oc,
-                    ROW_NUMBER() OVER (PARTITION BY m."Merged_wbs_categories" ORDER BY cj.period DESC) AS rank_project
-                FROM stg_master_mapping m
-                LEFT JOIN stg_cj74_agg cj ON (m.single_wbs = cj.clean_wbs AND m.cost_element = cj.cost_element)
-                LEFT JOIN stg_cji5_agg ci ON (m.single_wbs = ci.clean_wbs AND m.cost_element = ci.cost_element)
-                LEFT JOIN summary s ON (m."Merged_wbs_categories" = s."Merged_wbs_category")
-                WHERE cj.ptd_val IS NOT NULL OR ci.oc_val IS NOT NULL OR s.asbl > 0
-            ) AS final_src
-        `;
-        
-        await db.query(finalInsertSql);
-
-        // Phase 5: Flush Cache & Sync Drilldowns
-        filterCache.flushAll(); 
-        if (typeof exports.syncDrilldownTables === 'function') {
-            await exports.syncDrilldownTables();
-        }
-
-        // Phase 6: Pre-Aggregated Table for Blazing Fast Summary
-        await db.query(`DROP TABLE IF EXISTS summary_matrix_aggregated`);
-        await db.query(`
-            CREATE TABLE summary_matrix_aggregated AS
-            SELECT 
-                t.bu, t.customer, t.loa_id, t.loa_name, t.cost_revenue, t.categories, 
-                t."Merged_wbs_categories",
-                ROUND(MAX(COALESCE(static.asbl_val, 0)), 2) as asbl,
-                ROUND(MAX(COALESCE(static.asbl_loa_val, 0)), 2) as asbl_loa,
-                ROUND(SUM(t.ptd_val), 2) as ptd, 
-                ROUND(SUM(t.oc_val), 2) as open_commitment_KEUR, 
-                ROUND(SUM(t.oc_val), 2) as open_commitment,
-                ROUND(MAX(COALESCE(static.nc_val, 0)), 2) as non_committed_editable, 
-                ROUND(MAX(COALESCE(static.nc_val, 0)), 2) as non_committed, 
-                ROUND(SUM(t.ptd_val) + SUM(t.oc_val) + MAX(COALESCE(static.nc_val, 0)), 2) as eac,
-                ROUND(MAX(COALESCE(static.asbl_val, 0)) - (SUM(t.ptd_val) + SUM(t.oc_val) + MAX(COALESCE(static.nc_val, 0))), 2) as eac_vs_asbl
-            FROM (
-                SELECT 
-                    bu, customer, loa_id, loa_name, cost_revenue, categories, "Merged_wbs_categories",
-                    ptd as ptd_val, open_commitment_KEUR as oc_val
-                FROM final_dashboard_table
-            ) as t
-            LEFT JOIN (
-                SELECT 
-                    "Merged_wbs_categories", 
-                    MAX(asbl) as asbl_val, 
-                    MAX(asbl_loa) as asbl_loa_val,
-                    MAX(non_committed_editable) as nc_val
-                FROM final_dashboard_table
-                GROUP BY "Merged_wbs_categories"
-            ) as static ON t."Merged_wbs_categories" = static."Merged_wbs_categories"
-            GROUP BY t.bu, t.customer, t.loa_id, t.loa_name, t.cost_revenue, t.categories, t."Merged_wbs_categories"
-        `);
-        await db.query(`CREATE INDEX idx_sma_loa ON summary_matrix_aggregated (loa_id)`);
-        await db.query(`CREATE INDEX idx_sma_bu ON summary_matrix_aggregated (bu)`);
-        filterCache.flushAll(); // Clear old cache
-        console.log("⚡ Default Page 1 Pre-calculated & Saved in RAM for Instant User Load!");
-
+        await exports.runFullSyncCore();
         res.status(200).json({ message: "Sync Success! Everything is now accurate and Postgres-compatible." });
-
     } catch (error) {
         console.error("Full Refresh Error:", error);
         res.status(500).json({ error: error.message });
     }
 };
+
 
 // ==========================================
 // DRILLDOWN TABLES SYNC HELPER
@@ -937,6 +1027,8 @@ exports.updateNonCommitted = async (req, res) => {
                 eac_vs_asbl = (asbl - (ptd + open_commitment_KEUR + non_committed_editable))
             WHERE ABS(non_committed - non_committed_editable) > 0.01 OR non_committed_editable <> 0
         `);
+
+        triggerAutoSync('non_committed_saved');
 
         filterCache.flushAll(); // Clear Cache
         res.status(200).json({ message: `Successfully saved changes for ${totalUpdated} categories!`, updatedCount: totalUpdated });

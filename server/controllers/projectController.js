@@ -1,6 +1,7 @@
 const db = require('../config/db');
 const XLSX = require('xlsx');
 const fs = require('fs');
+const { triggerAutoSync } = require('./cronController');
 
 const EXCLUDED_WBS_TYPES_FOR_CJ74 = ['Warranty', 'Warranty/Other'];
 
@@ -273,6 +274,8 @@ const processProjectData = async (dataGrid, created_by, mode) => {
         if (warnings.length > 0) {
             finalMessage += " \n\nDetails: " + warnings.join(' | ');
         }
+
+        triggerAutoSync('new_project_or_wbs');
 
         return { message: finalMessage };
 

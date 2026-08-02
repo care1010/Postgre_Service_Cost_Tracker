@@ -2,217 +2,122 @@ const db = require('../config/db');
 const cron = require('node-cron');
 const dataController = require('./dataController');
 
-// Active cron job reference — restart karne ke liye
-let activeCronJob = null;
-let isSyncRunning = false; // Prevent concurrent syncs
+let currentCronJob = null;
+let isSyncing = false;
+let autoSyncTimeout = null;
 
-// ═══════════════════════════════════════════════════════
-// CORE SYNC FUNCTION
-// Yeh wahi logic hai jo fullRefresh mein tha
-// Sab triggers yahan aate hain
-// ═══════════════════════════════════════════════════════
-const runFullSync = async (triggeredBy = 'cron') => {
-    if (isSyncRunning) {
-        console.log(`⏭️ Sync already running, skipping trigger: ${triggeredBy}`);
-        return { success: false, message: 'Sync already in progress' };
-    }
-
-    isSyncRunning = true;
-    const startTime = Date.now();
-    console.log(`🚀 Auto-Sync started | Trigger: ${triggeredBy} | Time: ${new Date().toISOString()}`);
-
-    try {
-        // --- Reuse fullRefresh logic via mock req/res ---
-        await new Promise((resolve, reject) => {
-            const mockReq = {};
-            const mockRes = {
-                status: () => mockRes,
-                json: (data) => {
-                    if (data?.error) reject(new Error(data.error));
-                    else resolve(data);
-                }
-            };
-            dataController.fullRefresh(mockReq, mockRes).catch(reject);
-        });
-
-        const duration = ((Date.now() - startTime) / 1000).toFixed(1);
-        const message = `Sync completed in ${duration}s | Trigger: ${triggeredBy}`;
-        console.log(`✅ ${message}`);
-
-        // Update cron_config log
-        await db.query(`
-            UPDATE cron_config 
-            SET last_run_at = NOW(), last_run_status = 'success', 
-                last_run_message = ?, run_count = run_count + 1, updated_at = NOW()
-            WHERE job_name = 'full_sync'
-        `, [message]);
-
-        return { success: true, message, duration };
-
-    } catch (error) {
-        const message = `Sync failed: ${error.message} | Trigger: ${triggeredBy}`;
-        console.error(`❌ ${message}`);
-
-        await db.query(`
-            UPDATE cron_config 
-            SET last_run_at = NOW(), last_run_status = 'error',
-                last_run_message = ?, run_count = run_count + 1, updated_at = NOW()
-            WHERE job_name = 'full_sync'
-        `, [message]).catch(console.error);
-
-        return { success: false, message };
-
-    } finally {
-        isSyncRunning = false;
-    }
-};
-
-// ═══════════════════════════════════════════════════════
-// START/RESTART CRON — DB se schedule load karke start karo
-// ═══════════════════════════════════════════════════════
-const startCronFromDB = async () => {
-    try {
-        const [rows] = await db.query(
-            `SELECT cron_expression, is_enabled FROM cron_config WHERE job_name = 'full_sync'`
-        );
-
-        if (!rows || rows.length === 0) {
-            console.log('⚠️ No cron config found in DB, using default: 0 8,14,20 * * *');
-            scheduleCron('0 8,14,20 * * *');
-            return;
-        }
-
-        const { cron_expression, is_enabled } = rows[0];
-
-        if (!is_enabled) {
-            console.log('⏸️ Cron job is DISABLED in DB');
-            if (activeCronJob) { activeCronJob.stop(); activeCronJob = null; }
-            return;
-        }
-
-        scheduleCron(cron_expression);
-    } catch (err) {
-        console.error('❌ Failed to load cron config from DB:', err.message);
-        // Fallback to default
-        scheduleCron('0 8,14,20 * * *');
-    }
-};
-
-const scheduleCron = (expression) => {
-    // Stop existing job
-    if (activeCronJob) {
-        activeCronJob.stop();
-        activeCronJob = null;
-        console.log('🔄 Previous cron job stopped');
-    }
-
-    if (!cron.validate(expression)) {
-        console.error(`❌ Invalid cron expression: ${expression}`);
+// The actual Sync Runner
+const runSync = async (triggeredBy = 'cron') => {
+    if (isSyncing) {
+        console.log(`⏳ Sync already in progress. Skipping trigger from: ${triggeredBy}`);
         return;
     }
 
-    activeCronJob = cron.schedule(expression, async () => {
-        console.log(`⏰ Cron triggered at ${new Date().toISOString()}`);
-        await runFullSync('scheduled_cron');
-    }, {
-        timezone: 'Asia/Kolkata' // IST timezone
-    });
+    isSyncing = true;
+    console.log(`🟢 CRON/TRIGGER: Starting sync (Triggered by: ${triggeredBy})`);
 
-    console.log(`✅ Cron job scheduled: "${expression}" (IST)`);
-};
-
-// ═══════════════════════════════════════════════════════
-// API: Get cron config
-// ═══════════════════════════════════════════════════════
-exports.getCronConfig = async (req, res) => {
     try {
-        const [rows] = await db.query(`SELECT * FROM cron_config WHERE job_name = 'full_sync'`);
-        res.json(rows[0] || {});
-    } catch (err) {
-        res.status(500).json({ error: err.message });
+        await db.query("UPDATE cron_config SET last_run_at = NOW(), last_run_status = 'running', last_run_message = 'Sync in progress' WHERE job_name = 'full_sync'");
+        
+        // 🔥 Calling the actual DB Sync engine!
+        await dataController.runFullSyncCore();
+
+        await db.query("UPDATE cron_config SET last_run_status = 'success', last_run_message = 'Sync completed successfully', run_count = run_count + 1 WHERE job_name = 'full_sync'");
+        console.log('✅ CRON/TRIGGER: Sync completed successfully!');
+    } catch (error) {
+        console.error('❌ CRON/TRIGGER Error:', error.message);
+        // 🔥 FIXED: Used '?' here
+        await db.query("UPDATE cron_config SET last_run_status = 'error', last_run_message = ? WHERE job_name = 'full_sync'", [error.message.substring(0, 250)]);
+    } finally {
+        isSyncing = false;
     }
 };
 
-// ═══════════════════════════════════════════════════════
-// API: Update cron schedule (Admin panel se)
-// ═══════════════════════════════════════════════════════
+exports.initCron = async () => {
+    try {
+        if (currentCronJob) {
+            currentCronJob.stop();
+            currentCronJob = null;
+        }
+
+        const [rows] = await db.query("SELECT * FROM cron_config WHERE job_name = 'full_sync'");
+        if (rows.length === 0) return;
+
+        const config = rows[0];
+        if (config.is_enabled) {
+            currentCronJob = cron.schedule(config.cron_expression, () => {
+                runSync('scheduled_cron');
+            });
+            console.log(`⏰ Cron Job initialized: ${config.cron_expression}`);
+        } else {
+            console.log('⏰ Cron Job is currently disabled in DB.');
+        }
+    } catch (err) {
+        console.error("Cron Init Error:", err);
+    }
+};
+
+exports.getCronConfig = async (req, res) => {
+    try {
+        const [rows] = await db.query("SELECT * FROM cron_config WHERE job_name = 'full_sync'");
+        res.json(rows[0] || null);
+    } catch (err) { res.status(500).json({ error: err.message }); }
+};
+
+exports.getSyncStatus = (req, res) => {
+    res.json({ isRunning: isSyncing, cronActive: currentCronJob !== null });
+};
+
 exports.updateCronConfig = async (req, res) => {
     try {
         const { cron_expression, is_enabled } = req.body;
+        const updates = [];
+        const params = [];
 
-        if (cron_expression && !cron.validate(cron_expression)) {
-            return res.status(400).json({ error: `Invalid cron expression: "${cron_expression}"` });
+        if (cron_expression !== undefined) {
+            // Validate basic cron format
+            if (cron_expression !== 'custom' && !cron.validate(cron_expression)) {
+                return res.status(400).json({ error: 'Invalid cron expression format' });
+            }
+            // 🔥 FIXED: Use '?' instead of $ syntax
+            updates.push(`cron_expression = ?`);
+            params.push(cron_expression);
+        }
+        if (is_enabled !== undefined) {
+            // 🔥 FIXED: Use '?' instead of $ syntax
+            updates.push(`is_enabled = ?`);
+            params.push(is_enabled);
         }
 
-        await db.query(`
-            UPDATE cron_config 
-            SET cron_expression = COALESCE(?, cron_expression),
-                is_enabled = COALESCE(?, is_enabled),
-                updated_at = NOW()
-            WHERE job_name = 'full_sync'
-        `, [cron_expression || null, is_enabled !== undefined ? is_enabled : null]);
+        if (updates.length > 0) {
+            params.push('full_sync'); // For WHERE job_name = ?
+            
+            // 🔥 FIXED: Use '?' for the WHERE clause
+            await db.query(`UPDATE cron_config SET ${updates.join(', ')}, updated_at = NOW() WHERE job_name = ?`, params);
+            await exports.initCron();
+        }
 
-        // Restart cron with new config
-        await startCronFromDB();
-
-        const [updated] = await db.query(`SELECT * FROM cron_config WHERE job_name = 'full_sync'`);
-        res.json({ message: 'Cron config updated & restarted!', config: updated[0] });
-
-    } catch (err) {
-        res.status(500).json({ error: err.message });
+        const [rows] = await db.query("SELECT * FROM cron_config WHERE job_name = 'full_sync'");
+        res.json({ message: "Settings updated successfully", config: rows[0] });
+    } catch (err) { 
+        res.status(500).json({ error: err.message }); 
     }
 };
 
-// ═══════════════════════════════════════════════════════
-// API: Manual trigger from Admin Panel
-// ═══════════════════════════════════════════════════════
 exports.triggerManualSync = async (req, res) => {
-    const triggeredBy = req.body?.triggeredBy || req.query?.triggeredBy || 'manual_admin';
-
-    if (isSyncRunning) {
-        return res.status(409).json({ 
-            success: false, 
-            message: 'Sync is already running. Please wait for it to complete.' 
-        });
-    }
-
-    // Non-blocking: response bhejo, background mein sync chalo
-    res.json({ success: true, message: `Sync started (trigger: ${triggeredBy}). Check logs for status.` });
+    if (isSyncing) return res.status(400).json({ message: "Sync is already running." });
     
-    // Background mein run karo
-    runFullSync(triggeredBy).catch(console.error);
+    // Background execution
+    runSync(req.body.triggeredBy || 'manual_trigger');
+    res.json({ message: "Sync started in background." });
 };
 
-// ═══════════════════════════════════════════════════════
-// API: Check sync status
-// ═══════════════════════════════════════════════════════
-exports.getSyncStatus = async (req, res) => {
-    try {
-        const [rows] = await db.query(`SELECT * FROM cron_config WHERE job_name = 'full_sync'`);
-        res.json({
-            isRunning: isSyncRunning,
-            cronActive: !!activeCronJob,
-            config: rows[0] || {}
-        });
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
+// Delay to prevent 10 parallel syncs if user uploads 10 files rapidly
+exports.triggerAutoSync = (source) => {
+    if (autoSyncTimeout) clearTimeout(autoSyncTimeout);
+    console.log(`⏳ Auto-Sync queued by [${source}]. Waiting 2 seconds...`);
+    
+    autoSyncTimeout = setTimeout(() => {
+        runSync(`auto_trigger_${source}`);
+    }, 2000); 
 };
-
-// ═══════════════════════════════════════════════════════
-// AUTO-TRIGGER HELPER — other controllers import karenge
-// Trigger: Add Project, Add WBS, Add ASBL, Add PTD, Add NC
-// ═══════════════════════════════════════════════════════
-exports.triggerAutoSync = async (reason) => {
-    console.log(`🔔 Auto-sync triggered: ${reason}`);
-    // Small delay — DB write settle hone de pehle
-    setTimeout(() => {
-        runFullSync(`auto_${reason}`).catch(console.error);
-    }, 2000);
-};
-
-// ═══════════════════════════════════════════════════════
-// INIT — server start pe call karo
-// ═══════════════════════════════════════════════════════
-exports.initCron = startCronFromDB;
-exports.runFullSync = runFullSync;
