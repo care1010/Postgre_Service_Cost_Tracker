@@ -32,14 +32,56 @@ const RequestAccess = ({ onBack }) => {
         fetchDropdowns();
     }, []);
 
+    // const handleSubmit = async (e) => {
+    //     e.preventDefault();
+    //     setLoading(true);
+    //     setTimeout(() => {
+    //         alert("Access request sent successfully!");
+    //         setLoading(false);
+    //         onBack();
+    //     }, 1500);
+    // };
+
     const handleSubmit = async (e) => {
         e.preventDefault();
+
         setLoading(true);
-        setTimeout(() => {
-            alert("Access request sent successfully!");
+
+        try {
+
+            const response = await axios.post(
+                `${process.env.REACT_APP_API_URL}/api/data/request-access`,
+                {
+                    customer: formData.accountName,
+                    bu: formData.bu,
+                    loa: formData.projectName,
+                    email: formData.email
+                }
+            );
+
+            alert(response.data.message || "Access request submitted successfully.");
+
+            setFormData({
+                accountName: "",
+                bu: "",
+                projectName: "",
+                email: ""
+            });
+
+        } catch (err) {
+
+            console.error(err);
+
+            alert(
+                err.response?.data?.message ||
+                "Failed to submit access request."
+            );
+
+        } finally {
+
             setLoading(false);
-            onBack();
-        }, 1500);
+
+        }
     };
 
     if (viewRequests) {
@@ -73,9 +115,9 @@ const RequestAccess = ({ onBack }) => {
                 <label className="text-[13px] font-bold text-slate-900 uppercase tracking-wider ml-1">
                     {label} {required && '*'}
                 </label>
-                
+
                 {/* Custom Trigger / Search Input */}
-                <div 
+                <div
                     onClick={() => setIsOpen(!isOpen)}
                     className="w-full mt-1.5 p-3.5 rounded-xl border border-slate-200 bg-slate-50/50 text-sm flex justify-between items-center cursor-pointer hover:border-blue-400 transition-all"
                 >
@@ -101,7 +143,7 @@ const RequestAccess = ({ onBack }) => {
                                 className="w-full p-2 text-sm bg-white border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
                             />
                         </div>
-                        
+
                         {/* Options List */}
                         <div className="max-h-56 overflow-y-auto custom-scrollbar">
                             {filteredOptions.length > 0 ? (
@@ -131,12 +173,12 @@ const RequestAccess = ({ onBack }) => {
     return (
         <div className="min-h-screen w-full flex items-center justify-end font-['Calibri',_sans-serif] overflow-hidden"
             style={{ backgroundImage: `linear-gradient(to right, rgba(0,0,0,0.1), rgba(0,0,0,0.5)), url(${boatImage})`, backgroundSize: 'cover', backgroundPosition: 'center', backgroundAttachment: 'fixed' }}>
-            
+
             <div className="w-full sm:w-[85%] md:w-[50%] lg:w-[40%] xl:w-[35%] h-screen bg-white/95 backdrop-blur-md shadow-[-10px_0_30px_rgba(0,0,0,0.2)] flex flex-col justify-center px-8 md:px-16 relative">
-                
+
                 <button onClick={onBack} className="absolute top-8 left-8 flex items-center text-slate-700 hover:text-blue-600 transition-all font-bold text-sm group">
                     <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mr-2 group-hover:-translate-x-1 transition-transform">
-                        <path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+                        <path d="M19 12H5M12 19l-7-7 7-7" /></svg>
                     Back to Login
                 </button>
 
@@ -147,30 +189,30 @@ const RequestAccess = ({ onBack }) => {
                     </div>
 
                     <form onSubmit={handleSubmit} className="space-y-5">
-                        
-                        <SearchableSelect 
-                            label="Customer Account Name" 
-                            name="accountName" 
-                            value={formData.accountName} 
-                            options={dropdowns.customers} 
-                            required 
-                            placeholder="Select Customer Account▼" 
+
+                        <SearchableSelect
+                            label="Customer Account Name"
+                            name="accountName"
+                            value={formData.accountName}
+                            options={dropdowns.customers}
+                            required
+                            placeholder="Select Customer Account▼"
                         />
 
-                        <SearchableSelect 
-                            label="BU (Business Unit)" 
-                            name="bu" 
-                            value={formData.bu} 
-                            options={dropdowns.bus} 
-                            placeholder="Select BU▼" 
+                        <SearchableSelect
+                            label="BU (Business Unit)"
+                            name="bu"
+                            value={formData.bu}
+                            options={dropdowns.bus}
+                            placeholder="Select BU▼"
                         />
 
-                        <SearchableSelect 
-                            label="Project / LOA Name" 
-                            name="projectName" 
-                            value={formData.projectName} 
-                            options={dropdowns.loas} 
-                            placeholder="Select Project / LOA▼" 
+                        <SearchableSelect
+                            label="Project / LOA Name"
+                            name="projectName"
+                            value={formData.projectName}
+                            options={dropdowns.loas}
+                            placeholder="Select Project / LOA▼"
                         />
 
                         <div>
@@ -179,7 +221,7 @@ const RequestAccess = ({ onBack }) => {
                                 type="email"
                                 required
                                 value={formData.email}
-                                onChange={(e) => setFormData({...formData, email: e.target.value})}
+                                onChange={(e) => setFormData({ ...formData, email: e.target.value })}
                                 className="w-full mt-1.5 p-3.5 rounded-xl border border-slate-200 bg-slate-50/50 text-sm outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
                                 placeholder="name@nokia.com"
                             />

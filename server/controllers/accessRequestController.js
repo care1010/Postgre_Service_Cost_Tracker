@@ -1,4 +1,5 @@
 const db = require('../config/db'); // Sahi path jo aapne bataya
+const mailService = require("../services/mailService");
 
 const getDropdownData = async (req, res) => {
     try {
@@ -26,4 +27,29 @@ const getDropdownData = async (req, res) => {
     }
 };
 
-module.exports = { getDropdownData };
+// New function
+const submitAccessRequest = async (req, res) => {
+
+    try {
+
+        await mailService.sendAccessRequestMail(req.body);
+
+        res.status(200).json({
+            success: true,
+            message: "Mail sent successfully."
+        });
+
+    } catch (err) {
+
+        console.error("Mail Error:", err);
+
+        res.status(500).json({
+            success: false,
+            message: err.message
+        });
+
+    }
+
+};
+
+module.exports = { getDropdownData, submitAccessRequest };

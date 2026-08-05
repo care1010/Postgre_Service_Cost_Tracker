@@ -9,7 +9,7 @@ const path = require('path');
 // ASBL Update route
 const asblController = require('../controllers/asblController');
 const authController = require('../controllers/authController');
-const { getDropdownData } = require('../controllers/accessRequestController'); // Import the new controller function
+const { getDropdownData, submitAccessRequest } = require('../controllers/accessRequestController'); // Import the new controller function
 
 
 // In teeno routes ke naam controller ke function se match hone chahiye
@@ -134,5 +134,6 @@ router.get('/add-project-options', projectController.getAddProjectOptions);
 
 // Route to get all dropdown lists
 router.get('/dropdowns', getDropdownData);
+router.post('/request-access', submitAccessRequest);
 
 module.exports = router;
