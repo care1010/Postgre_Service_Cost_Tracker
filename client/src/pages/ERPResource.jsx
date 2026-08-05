@@ -16,6 +16,10 @@ const ERPResource = () => {
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [selectedFile, setSelectedFile] = useState(null);
 
+  // To Hide upload button from user or Admin 
+  const user = JSON.parse(localStorage.getItem("user")) || {};
+  const isSuperAdmin = user.type === 'super_admin';
+
   const fetchData = async (
     currentPage = page,
     currentSearch = debouncedSearch,
@@ -27,7 +31,7 @@ const ERPResource = () => {
       const response = await fetch(
         `${process.env.REACT_APP_API_URL}/api/data/erp-resource?page=${currentPage}&pageSize=${currentPageSize}&search=${encodeURIComponent(
           currentSearch
-        )}&sortBy=id&sortOrder=asc`
+        )}&type=${user.type}&allowedCustomers=${user.allowedCustomers || ''}&sortBy=id&sortOrder=asc`
       );
 
       const result = await response.json();
@@ -209,6 +213,8 @@ const ERPResource = () => {
             </div>
 
             <div className="flex items-center gap-2">
+              {/* Sirf Super Admin ko dikhega */}
+              {isSuperAdmin && (
               <button
                 onClick={() => setShowUploadModal(true)}
                 className="inline-flex items-center gap-1.5 px-4 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold text-sm rounded-xl transition-all active:scale-[0.98]"
@@ -218,6 +224,7 @@ const ERPResource = () => {
                 </svg>
                 Upload Data
               </button>
+              )}
 
               <input
                 type="file"

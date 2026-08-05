@@ -313,7 +313,7 @@ const SummaryView = ({ user, filters, onFilterChange, onResetFilters }) => {
         { header: 'Cost / Revenue', field: 'cost_revenue' }, 
         { header: 'Category', field: 'categories' }, 
         { header: 'ASBL', field: 'asbl' }, 
-        { header: 'ASBL LOA', field: 'asbl_loa' }, 
+        // { header: 'ASBL LOA', field: 'asbl_loa' }, 
         { header: 'PTD', field: 'ptd', clickable: true }, 
         { header: 'Open Commitment', field: 'open_commitment_KEUR', clickable: true }, 
         { header: 'Non Committed', field: 'non_committed_editable' }, 
@@ -331,7 +331,18 @@ const SummaryView = ({ user, filters, onFilterChange, onResetFilters }) => {
 
     const wbsTypeOptions = options?.wbs_type || [];
 
-    if (isReviewMode) return <ReviewChanges onBack={() => setIsReviewMode(false)} />;
+    if (isReviewMode) {
+    return (
+        <ReviewChanges 
+            user={user}
+            filters={filters} 
+            options={options} 
+            onFilterChange={onFilterChange} 
+            onResetFilters={onResetFilters}
+            onBack={() => setIsReviewMode(false)} 
+        />
+    );
+}
 
     return (
         <div className="flex bg-[#f8fafc] min-h-screen relative overflow-hidden">
@@ -356,12 +367,18 @@ const SummaryView = ({ user, filters, onFilterChange, onResetFilters }) => {
                             <span className="text-sm font-semibold text-blue-700">Export</span>
                         </button>
 
+                        {/* Existing code ko replace karein is logic se */}
                         {(user?.type === 'admin' || user?.type === 'super_admin') && (
                             <>
-                                <button onClick={handleReviewClick} className="border border-slate-300 border-t-4 border-t-green-600 bg-white px-5 py-2 shadow-sm hover:shadow-md transition-all flex items-center gap-2 rounded-lg">
-                                    <HiOutlineRefresh className="text-green-700" /> 
-                                    <span className="text-sm font-semibold text-green-700">Review</span>
-                                </button>
+                                {/* REVIEW button sirf Super Admin ko dikhega */}
+                                {user?.type === 'super_admin' && (
+                                    <button onClick={handleReviewClick} className="border border-slate-300 border-t-4 border-t-green-600 bg-white px-5 py-2 shadow-sm hover:shadow-md transition-all flex items-center gap-2 rounded-lg">
+                                        <HiOutlineRefresh className="text-green-700" /> 
+                                        <span className="text-sm font-semibold text-green-700">Review</span>
+                                    </button>
+                                )}
+
+                                {/* SYNC DB button Admin aur Super Admin dono ko dikhta rahega (Existing Logic) */}
                                 <button onClick={handleFullRefresh} className="border border-slate-300 border-t-4 border-t-slate-800 bg-white px-5 py-2 shadow-sm hover:shadow-md transition-all flex items-center gap-2 rounded-lg">
                                     <span className="text-sm font-semibold text-slate-800">Sync DB</span>
                                 </button>

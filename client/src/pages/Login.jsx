@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import axios from 'axios';
 import loginImage from '../assets/Login.png';
 import companyLogo from '../assets/OIP.jpg';
+import RequestAccess from './RequestAccess'; // import new access page component
 
 const Login = ({ onLoginSuccess }) => {
 
@@ -10,7 +11,13 @@ const Login = ({ onLoginSuccess }) => {
     const [loading, setLoading] = useState(false);
 
     const [showPassword, setShowPassword] = useState(false);
-    const [rememberMe, setRememberMe] = useState(false);
+    const [rememberMe, setRememberMe] = useState(true);
+
+    const [isRequesting, setIsRequesting] = useState(false);
+
+    if (isRequesting) {
+        return <RequestAccess onBack={() => setIsRequesting(false)} />;
+    }
 
     const handleSubmit = async (e) => {
         e.preventDefault();
@@ -41,7 +48,7 @@ const Login = ({ onLoginSuccess }) => {
 
     return (
 
-        <div className="min-h-screen flex font-['DM_Sans']">
+        <div className="min-h-screen flex font-['Calibri',_sans-serif]">
 
             {/* LEFT PANEL */}
             <div
@@ -92,10 +99,10 @@ const Login = ({ onLoginSuccess }) => {
                     <div className="mb-10">
 
                         <h1 className="text-4xl font-black text-slate-800 mb-2">
-                            Welcome
+                            Hey Welcome ..!
                         </h1>
 
-                        <p className="text-slate-500 text-sm">
+                        <p className="text-slate-500 text-[15px]">
                             Sign into your account.
                         </p>
 
@@ -106,8 +113,8 @@ const Login = ({ onLoginSuccess }) => {
                         {/* EMAIL */}
                         <div>
 
-                            <label className="text-xs font-bold text-slate-500 uppercase ml-1">
-                                Email Address
+                            <label className="text-[15px] font-bold text-slate-700 uppercase ml-1">
+                                Email Address *
                             </label>
 
                             <input
@@ -116,7 +123,7 @@ const Login = ({ onLoginSuccess }) => {
                                 placeholder="user@nokia.com"
                                 value={email}
                                 onChange={(e) => setEmail(e.target.value)}
-                                className="w-full mt-2 p-3 rounded-xl border border-slate-200 bg-slate-50 text-sm outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
+                                className="w-full mt-2 p-3 rounded-xl border border-slate-300 bg-slate-50 text-sm outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
                             />
 
                         </div>
@@ -124,8 +131,8 @@ const Login = ({ onLoginSuccess }) => {
                         {/* PASSWORD */}
                         <div>
 
-                            <label className="text-xs font-bold text-slate-500 uppercase ml-1">
-                                Password
+                            <label className="text-[15px] font-bold text-slate-700 uppercase ml-1">
+                                Password *
                             </label>
 
                             <div className="relative mt-2">
@@ -136,7 +143,7 @@ const Login = ({ onLoginSuccess }) => {
                                     placeholder="••••••••"
                                     value={password}
                                     onChange={(e) => setPassword(e.target.value)}
-                                    className="w-full p-3 pr-12 rounded-xl border border-slate-200 bg-slate-50 text-sm outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
+                                    className="w-full p-3 pr-12 rounded-xl border border-slate-300 bg-slate-50 text-sm outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
                                 />
 
                                 <button
@@ -201,7 +208,7 @@ const Login = ({ onLoginSuccess }) => {
                                     className="rounded text-blue-600"
                                 />
 
-                                <span className="text-xs text-slate-500 font-medium">
+                                <span className="text-[13px] text-slate-700 font-medium">
                                     Remember me
                                 </span>
 
@@ -209,23 +216,35 @@ const Login = ({ onLoginSuccess }) => {
 
                             <button
                                 type="button"
-                                className="text-xs text-blue-600 font-bold hover:underline"
+                                className="text-[14px] text-blue-600 font-bold hover:underline"
                             >
                                 Forgot Password?
                             </button>
 
                         </div>
 
-                        {/* BUTTON */}
-                        <button
-                            type="submit"
-                            disabled={loading}
-                            className="w-full py-4 bg-slate-900 hover:bg-black text-white rounded-2xl font-bold text-sm shadow-xl transition-all active:scale-95"
-                        >
+                        {/* BUTTONS SECTION - Line 173 ke aas paas replace */}
+<div className="space-y-4">
+    <button
+        type="submit"
+        disabled={loading}
+        className="w-full py-4 bg-slate-900 hover:bg-black text-white rounded-2xl font-bold text-[16px] shadow-xl transition-all active:scale-95"
+    >
+        {loading ? "Signing in..." : "Login →"}
+    </button>
 
-                            {loading ? "Signing in..." : "Login to Dashboard →"}
-
-                        </button>
+    {/* NAYA REQUEST ACCESS BUTTON */}
+    <button
+        type="button"
+        onClick={() => setIsRequesting(true)}
+        className="w-full py-4 bg-slate border-2 border-slate-400 hover:bg-slate-50 text-slate-700 rounded-2xl font-bold text-[17px] transition-all active:scale-95 flex items-center justify-center gap-2"
+    >
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+        </svg>
+        Request Access
+    </button>
+</div>
 
                     </form>
 
@@ -234,7 +253,7 @@ const Login = ({ onLoginSuccess }) => {
                 {/* FOOTER */}
                 <div className="text-center pt-8">
 
-                    <p className="text-[11px] text-slate-400">
+                    <p className="text-[13px] text-slate-700">
                         ©2026 Nokia all rights reserved
                     </p>
 

@@ -1,3 +1,15 @@
+/* Table rows ko force show karne ke liye */
+.dataTables_wrapper table.dataTable tbody tr {
+    height: auto !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+}
+
+/* Loader ke waqt table ko hide hone se bachane ke liye */
+.dataTables_scrollBody {
+    min-height: 200px !important;
+}
+
 /* Table Header Styling */
 .dataTables_wrapper .dataTables_filter input {
     border: 1px solid #cbd5e1;

@@ -122,8 +122,8 @@ const DataTable = ({ title, columns, apiUrl, filters, onKpiUpdate, showSaveButto
             const offset = showClearButton ? 1 : 0;
             let asblText = $row.find('td:nth-child(7)').text().trim();
             const asbl = asblText === '' ? null : parseFloat(asblText.replace(/,/g, ''));
-            const ptd = parseFloat($row.find('td:nth-child(9)').text().replace(/,/g, '')) || 0;
-            const oc = parseFloat($row.find('td:nth-child(10)').text().replace(/,/g, '')) || 0;
+            const ptd = parseFloat($row.find('td:nth-child(8)').text().replace(/,/g, '')) || 0;
+            const oc = parseFloat($row.find('td:nth-child(9)').text().replace(/,/g, '')) || 0;
             const nc = parseFloat($input.val()) || 0;
             const newEac = ptd + oc + nc;
             
@@ -131,8 +131,8 @@ const DataTable = ({ title, columns, apiUrl, filters, onKpiUpdate, showSaveButto
             const actualAsbl = asbl === null ? 0 : asbl;
             const newVar = actualAsbl - newEac;
 
-            $row.find(`td:nth-child(${12 + offset})`).text(fmt(newEac));
-            $row.find(`td:nth-child(${13 + offset})`).text(fmt(newVar));
+            $row.find(`td:nth-child(${11 + offset})`).text(fmt(newEac));
+            $row.find(`td:nth-child(${12 + offset})`).text(fmt(newVar));
         });
 
         dataTableInstance.current = $(tableRef.current).DataTable({
@@ -159,7 +159,7 @@ const DataTable = ({ title, columns, apiUrl, filters, onKpiUpdate, showSaveButto
             columns: columns.map(col => ({
                 title: col.header,
                 data: col.field,
-                width: col.field === 'loa_name' ? '180px' : col.field === 'categories' ? '150px' : '80px',
+                width: col.field === 'loa_name' ? '180px' : col.field === 'categories' ? '150px': (col.field === 'non_committed' || col.field === 'non_committed_editable' || col.field === 'non_committed_original') ? '130px': '80px',
                 defaultContent: "-",
                 className: col.field === 'non_committed' ? 'text-left' : col.header.match(/ASBL|PTD|EAC|COMMITTED/i) ? 'text-right' : 'text-left',
                 render: function (data, type, row) {
@@ -223,7 +223,7 @@ const DataTable = ({ title, columns, apiUrl, filters, onKpiUpdate, showSaveButto
                                 <td class="font-bold text-grey-700">${rowData.loa_id}</td>
                                 <td></td><td></td>
                                 <td class="text-right font-bold text-grey-900">${fmt(asbl)}</td>
-                                <td class="text-right font-bold text-grey-900">${fmt(asbl_loa)}</td>
+                                
                                 <td class="text-right font-bold text-grey-900">${fmt(ptd)}</td>
                                 <td class="text-right font-bold text-grey-900">${fmt(oc)}</td>
                                 ${showClearButton ? `<td class="text-right font-bold text-grey-900">${fmt(nc_orig)}</td>` : ''} 
@@ -243,7 +243,7 @@ const DataTable = ({ title, columns, apiUrl, filters, onKpiUpdate, showSaveButto
                                 <td class="pbi-col font-bold text-grey-700">${!collapseView ? '<span class="toggle-icon">➕</span>' : ''} ${group}</td>
                                 <td></td>
                                 <td class="text-right font-bold text-grey-700">${fmt(asbl)}</td>
-                                <td class="text-right font-bold text-grey-700">${fmt(asbl_loa)}</td>
+                                
                                 <td class="text-right font-bold text-grey-700">${fmt(ptd)}</td>
                                 <td class="text-right font-bold text-grey-700">${fmt(oc)}</td>
                                 ${showClearButton ? `<td class="text-right font-bold text-grey-700">${fmt(nc_orig)}</td>` : ''}

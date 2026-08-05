@@ -121,6 +121,32 @@ const AdminPanel = ({ user, onBack }) => {
         }
     }, [users, user, activeAdminTab]);
 
+    // Helper to generate a secure random password
+const handleGeneratePassword = () => {
+    const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()-_=+";
+    const passwordLength = 12;
+    let newPassword = "";
+    for (let i = 0; i < passwordLength; i++) {
+        newPassword += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    setFormData({ ...formData, password: newPassword });
+};
+
+// Helper to check password strength
+const getPasswordStrength = (pass) => {
+    if (!pass) return null;
+    if (pass.length < 6) return { label: 'Weak', color: 'text-rose-500' };
+    const hasLetters = /[a-zA-Z]/.test(pass);
+    const hasNumbers = /\d/.test(pass);
+    const hasSpecial = /[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(pass);
+    
+    if (pass.length >= 10 && hasLetters && hasNumbers && hasSpecial) 
+        return { label: 'Strong', color: 'text-emerald-600' };
+    return { label: 'Medium', color: 'text-amber-600' };
+};
+
+const strength = getPasswordStrength(formData.password);
+
     const handleSubmit = async (e) => {
         e.preventDefault();
         try {
@@ -204,7 +230,7 @@ const AdminPanel = ({ user, onBack }) => {
                                 <div className="bg-white w-full max-w-2xl rounded-[1.5rem] shadow-2xl overflow-hidden">
                                     <div className="p-6 border-b border-slate-200 flex justify-between items-center bg-slate-50">
                                         <h2 className="text-xl font-black text-slate-800 uppercase tracking-tighter">
-                                            {editMode ? 'Edit User Permissions' : 'Configure New User'}
+                                            {editMode ? 'Edit User' : 'Create New User'}
                                         </h2>
                                         <button onClick={() => setShowModal(false)} className="text-slate-400 hover:text-red-500 text-3xl font-light">&times;</button>
                                     </div>
@@ -212,29 +238,66 @@ const AdminPanel = ({ user, onBack }) => {
                                     <form onSubmit={handleSubmit} className="p-6 space-y-5">
                                         <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                                             <div>
-                                                <label className="text-[10px] font-black text-slate-500 uppercase block mb-1">Login Email</label>
+                                                <label className="text-[12px] font-black text-grey-500 uppercase block mb-1">Login Email</label>
                                                 <input type="email" disabled={editMode} className="w-full p-3 rounded-xl bg-slate-50 border border-slate-200 text-slate-800 outline-none focus:border-blue-500 transition-all disabled:opacity-50" value={formData.email} onChange={e => setFormData({...formData, email: e.target.value})} placeholder="user@nokia.com" required />
                                             </div>
                                             <div>
-                                                <label className="text-[10px] font-black text-slate-500 uppercase block mb-1">Assigned Role</label>
+                                                <label className="text-[12px] font-black text-grey-500 uppercase block mb-1">Assigned Role</label>
                                                 <select className="w-full p-3 rounded-xl bg-slate-50 border border-slate-200 text-slate-800 outline-none focus:border-blue-500 transition-all" value={formData.type} onChange={e => setFormData({...formData, type: e.target.value})}>
-                                                    <option value="user">User (View Only)</option>
-                                                    <option value="admin">Admin (Editor)</option>
-                                                    {user?.type === 'super_admin' && <option value="super_admin">Super Admin</option>}
+                                                    <option value="user">User</option>
+                                                    <option value="admin">Admin</option>
+                                                    {user?.type === 'super_admin' && <option value="super_admin">Super Admin (Global Access)</option>}
                                                 </select>
                                             </div>
                                         </div>
 
                                         <div>
-                                            <label className="text-[10px] font-black text-slate-500 uppercase block mb-1">
-                                                Account Password {editMode && <span className="text-blue-500 font-normal">(Leave blank to keep current)</span>}
-                                            </label>
-                                            <input type="text" className="w-full p-3 rounded-xl bg-slate-50 border border-slate-200 text-slate-800 font-mono outline-none focus:border-blue-500" value={formData.password} onChange={e => setFormData({...formData, password: e.target.value})} placeholder={editMode ? "Enter only to change..." : "Assign a password"} required={!editMode} />
+                                            <div className="flex justify-between items-center mb-1">
+                                                <label className="text-[12px] font-black text-grey-500 uppercase">
+                                                    Account Password {editMode && <span className="text-blue-500 font-normal">(Leave blank to keep current)</span>}
+                                                </label>
+                                                
+                                                {/* Strength Indicator Label */}
+                                                {strength && (
+                                                    <span className={`text-[10px] font-black uppercase ${strength.color}`}>
+                                                        Strength: {strength.label}
+                                                    </span>
+                                                )}
+                                            </div>
+
+                                            <div className="relative group">
+                                                <input 
+                                                    type="text" 
+                                                    className={`w-full p-3 pr-24 rounded-xl bg-slate-50 border border-slate-200 text-slate-800 font-mono text-sm outline-none transition-all focus:border-blue-500 ${strength ? (strength.label === 'Strong' ? 'ring-1 ring-emerald-500/20' : '') : ''}`} 
+                                                    value={formData.password} 
+                                                    onChange={e => setFormData({...formData, password: e.target.value})} 
+                                                    placeholder={editMode ? "Enter only to change..." : "Assign a password"} 
+                                                    required={!editMode} 
+                                                />
+                                                
+                                                {/* Generate Button inside Input */}
+                                                <button 
+                                                    type="button"
+                                                    onClick={handleGeneratePassword}
+                                                    className="absolute right-2 top-1/2 -translate-y-1/2 px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-600 text-[9px] font-black uppercase rounded-lg border border-blue-200 transition-all active:scale-95"
+                                                >
+                                                    Generate
+                                                </button>
+                                            </div>
+                                            
+                                            {/* Visual Strength Bar (Optional but looks great) */}
+                                            {strength && (
+                                                <div className="mt-1.5 flex gap-1 h-1 px-1">
+                                                    <div className={`flex-1 rounded-full transition-all duration-500 ${strength.label === 'Weak' || strength.label === 'Medium' || strength.label === 'Strong' ? strength.color.replace('text', 'bg') : 'bg-slate-200'}`}></div>
+                                                    <div className={`flex-1 rounded-full transition-all duration-500 ${strength.label === 'Medium' || strength.label === 'Strong' ? strength.color.replace('text', 'bg') : 'bg-slate-200'}`}></div>
+                                                    <div className={`flex-1 rounded-full transition-all duration-500 ${strength.label === 'Strong' ? strength.color.replace('text', 'bg') : 'bg-slate-200'}`}></div>
+                                                </div>
+                                            )}
                                         </div>
 
                                         <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200">
                                             <div className="flex justify-between items-center mb-3">
-                                                <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Assign Customer Access</p>
+                                                <p className="text-[12px] font-black text-grey-500 uppercase tracking-widest">Assign Customer Access</p>
                                                 <div className="flex gap-3">
                                                     <button type="button" onClick={() => setFormData({...formData, customers: [...customers]})} className="text-[10px] font-black text-blue-600 hover:underline uppercase">Select All</button>
                                                     <button type="button" onClick={() => setFormData({...formData, customers: []})} className="text-[10px] font-black text-red-500 hover:underline uppercase">Clear</button>
@@ -252,7 +315,7 @@ const AdminPanel = ({ user, onBack }) => {
 
                                         <div className="flex gap-3 pt-3">
                                             <button type="submit" className="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-3.5 rounded-xl font-black uppercase text-xs tracking-[0.1em] transition-all shadow-md">
-                                                {editMode ? 'Update Account' : 'Initialize Account'}
+                                                {editMode ? 'Update Account' : 'Create User'}
                                             </button>
                                             <button type="button" onClick={() => setShowModal(false)} className="px-8 bg-slate-200 hover:bg-slate-300 text-slate-700 py-3.5 rounded-xl font-black uppercase text-xs tracking-widest transition-all">
                                                 Cancel

@@ -228,6 +228,12 @@ const Dashboard = ({ user, filters, onFilterChange, onResetFilters }) => {
     }, [JSON.stringify(filters), showAllLoa, tableView, user]); // eslint-disable-line
 
     const exportToExcel = () => {
+        // 🔥 DEMO FIX: Export se asbl_loa hatane ke liye data ko clean karein
+    const dataToExport = tableData.map(row => {
+        // asbl_loa ko object se bahar nikaal do, baaki data 'rest' mein rahega
+        const { asbl_loa, ...rest } = row; 
+        return rest;
+    });
         const worksheet = XLSX.utils.json_to_sheet(tableData);
         const workbook = XLSX.utils.book_new();
         XLSX.utils.book_append_sheet(workbook, worksheet, "Dashboard Table");
@@ -235,13 +241,13 @@ const Dashboard = ({ user, filters, onFilterChange, onResetFilters }) => {
     };
 
     const columnsToShow = 
-        tableView === 'bu' ? ['bu', 'asbl', 'asbl_loa', 'ptd', 'open_commitment', 'non_committed', 'eac', 'eac_vs_asbl'] :
-        tableView === 'bu-customer' ? ['bu', 'customer', 'asbl', 'asbl_loa', 'ptd', 'open_commitment', 'non_committed', 'eac', 'eac_vs_asbl'] :
-        tableView === 'loa' ? ['bu', 'customer', 'loa_id', 'loa_name', 'asbl', 'asbl_loa', 'ptd', 'open_commitment', 'non_committed', 'eac', 'eac_vs_asbl'] :
-        tableView === 'customer-bu' ? ['customer', 'bu', 'asbl', 'asbl_loa', 'ptd', 'open_commitment', 'non_committed', 'eac', 'eac_vs_asbl'] :
-        tableView === 'negative-loa' ? ['bu', 'customer', 'loa_id', 'loa_name', 'asbl', 'asbl_loa', 'ptd', 'open_commitment', 'non_committed', 'eac', 'eac_vs_asbl'] :
-        tableView === 'customer-bu-loa' ? ['customer', 'bu', 'loa_name', 'asbl', 'asbl_loa', 'ptd', 'open_commitment', 'non_committed', 'eac', 'eac_vs_asbl'] :
-        ['customer', 'asbl', 'asbl_loa', 'ptd', 'open_commitment', 'non_committed', 'eac', 'eac_vs_asbl'];
+        tableView === 'bu' ? ['bu', 'asbl', 'ptd', 'open_commitment', 'non_committed', 'eac', 'eac_vs_asbl'] :
+        tableView === 'bu-customer' ? ['bu', 'customer', 'asbl', 'ptd', 'open_commitment', 'non_committed', 'eac', 'eac_vs_asbl'] :
+        tableView === 'loa' ? ['bu', 'customer', 'loa_id', 'loa_name', 'asbl', 'ptd', 'open_commitment', 'non_committed', 'eac', 'eac_vs_asbl'] :
+        tableView === 'customer-bu' ? ['customer', 'bu', 'asbl', 'ptd', 'open_commitment', 'non_committed', 'eac', 'eac_vs_asbl'] :
+        tableView === 'negative-loa' ? ['bu', 'customer', 'loa_id', 'loa_name', 'asbl', 'ptd', 'open_commitment', 'non_committed', 'eac', 'eac_vs_asbl'] :
+        tableView === 'customer-bu-loa' ? ['customer', 'bu', 'loa_name', 'asbl', 'ptd', 'open_commitment', 'non_committed', 'eac', 'eac_vs_asbl'] :
+        ['customer', 'asbl', 'ptd', 'open_commitment', 'non_committed', 'eac', 'eac_vs_asbl'];
 
     const predefinedOrder = ['IP', 'Optics', 'FN'];
     const sortedBuData = [...buData].sort((a, b) => {
@@ -304,10 +310,10 @@ const Dashboard = ({ user, filters, onFilterChange, onResetFilters }) => {
                             {[
                                 { key: 'bu', label: 'BU Only' },
                                 { key: 'bu-customer', label: 'BU + Customer' },
-                                { key: 'loa', label: 'BU + Cust + LOA' },
+                                { key: 'loa', label: 'BU + Customer + LOA' },
                                 { key: 'customer', label: 'Customer Only' },
-                                { key: 'customer-bu', label: 'Customer + BU' },
-                                { key: 'customer-bu-loa', label: 'Customer + BU + LOA' },
+                                // { key: 'customer-bu', label: 'Customer + BU' },
+                                // { key: 'customer-bu-loa', label: 'Customer + BU + LOA' },
                                 { key: 'negative-loa', label: '-ve LOA' },
                             ].map(({ key, label }) => (
                                 <button
@@ -398,11 +404,12 @@ const Dashboard = ({ user, filters, onFilterChange, onResetFilters }) => {
                                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f901" />
                                 <XAxis dataKey="bu" axisLine={false} tickLine={false} tick={{ fill: '#1e293b', fontSize: 13, fontWeight: 900 }} dy={10}/>
                                 <YAxis axisLine={false} tickLine={false} tick={{ fill: '#94a3b800', fontSize: 11 }} />
-                                <Tooltip cursor={{ fill: '#f8fafc' }} contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 25px -5px rgba(0,0,0,0.1)' }} formatter={(value, name) => [formatNum(value), String(name).toUpperCase()]} />
-                                <Legend verticalAlign="top" align="right" iconType="circle" formatter={(value) => <span style={{ color: '#475569', fontWeight: '800', textTransform: 'uppercase', fontSize: '12px', marginRight: '10px' }}>{String(value).toUpperCase()}</span>} />
+                                <Tooltip cursor={{ fill: '#f8fafc' }} itemSorter={(item) => ({ ASBL: 1, PTD: 2, EAC: 3 }[item.name] || 999)} contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 25px -5px rgba(0,0,0,0.1)' }} formatter={(value, name) => [formatNum(value), String(name).toUpperCase()]} />
+                                <Legend verticalAlign="top" align="right" content={() => <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '18px', marginBottom: '10px' }}><div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><div style={{ width: 10, height: 10, borderRadius: '50%', background: '#2563eb' }} /><span style={{ color: '#475569', fontWeight: 800, fontSize: 12 }}>ASBL</span></div><div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><div style={{ width: 10, height: 10, borderRadius: '50%', background: '#10b981' }} /><span style={{ color: '#475569', fontWeight: 800, fontSize: 12 }}>PTD</span></div><div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><div style={{ width: 10, height: 10, borderRadius: '50%', background: '#f59e0b' }} /><span style={{ color: '#475569', fontWeight: 800, fontSize: 12 }}>EAC</span></div></div>} />
                                 <Bar dataKey="asbl" name="ASBL" fill="#2563eb" radius={[6, 6, 0, 0]} barSize={100}><LabelList dataKey="asbl" position="top" formatter={(v) => formatNum(v)} style={{ fontSize: '16px', fontWeight: '600', fill: '#1e293b' }} offset={10}/></Bar>
-                                <Bar dataKey="eac" name="EAC" fill="#f59e0b" radius={[6, 6, 0, 0]} barSize={100}><LabelList dataKey="eac" position="top" formatter={(v) => formatNum(v)} style={{ fontSize: '16px', fontWeight: '600', fill: '#1e293b' }} offset={10}/></Bar>
                                 <Bar dataKey="ptd" name="PTD" fill="#10b981" radius={[6, 6, 0, 0]} barSize={100}><LabelList dataKey="ptd" position="top" formatter={(v) => formatNum(v)} style={{ fontSize: '16px', fontWeight: '600', fill: '#1e293b' }} offset={10}/></Bar>
+                                <Bar dataKey="eac" name="EAC" fill="#f59e0b" radius={[6, 6, 0, 0]} barSize={100}><LabelList dataKey="eac" position="top" formatter={(v) => formatNum(v)} style={{ fontSize: '16px', fontWeight: '600', fill: '#1e293b' }} offset={10}/></Bar>
+
                             </BarChart>
                         </ResponsiveContainer>
                     </div>
@@ -425,11 +432,11 @@ const Dashboard = ({ user, filters, onFilterChange, onResetFilters }) => {
                                 <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#f1f5f9"/>
                                 <XAxis type="number" axisLine={false} tickLine={false} tick={{fill: '#94a3b801'}}/>
                                 <YAxis dataKey="loa_name" type="category" width={250} axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: '#475569', fontWeight: 700 }} />
-                                <Tooltip formatter={(value, name) => [formatNum(value), String(name).toUpperCase()]} contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 25px -5px rgba(0,0,0,0.1)' }}/>
-                                <Legend verticalAlign="top" align="right" iconType="circle" formatter={(value) => <span style={{ color: '#475569', fontWeight: '800', textTransform: 'uppercase', fontSize: '11px' }}>{String(value).toUpperCase()}</span>}/>
+                                <Tooltip itemSorter={(item) => ({ ASBL: 1, PTD: 2, EAC: 3 }[item.name] || 999)} formatter={(value, name) => [formatNum(value), String(name).toUpperCase()]} contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 25px -5px rgba(0,0,0,0.1)' }} />
+                                <Legend verticalAlign="top" align="right" content={() => <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '18px', marginBottom: '10px' }}>{[{ label: 'ASBL', color: '#2563eb' }, { label: 'PTD', color: '#10b981' }, { label: 'EAC', color: '#f59e0b' }].map((item) => <div key={item.label} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><div style={{ width: 10, height: 10, borderRadius: '50%', background: item.color }} /><span style={{ color: '#475569', fontWeight: 800, fontSize: 11 }}>{item.label}</span></div>)}</div>} />
                                 <Bar dataKey="asbl" name="ASBL" fill="#2563eb" radius={[0, 4, 4, 0]}><LabelList dataKey="asbl" position="right" formatter={(v) => formatNum(v)} style={{ fontSize: '10px', fontWeight: 'bold', fill: '#1e293b' }} /></Bar>
-                                <Bar dataKey="eac" name="EAC" fill="#f59e0b" radius={[0, 4, 4, 0]}><LabelList dataKey="eac" position="right" formatter={(v) => formatNum(v)} style={{ fontSize: '10px', fontWeight: 'bold', fill: '#1e293b' }} /></Bar>
                                 <Bar dataKey="ptd" name="PTD" fill="#10b981" radius={[0, 4, 4, 0]}><LabelList dataKey="ptd" position="right" formatter={(v) => formatNum(v)} style={{ fontSize: '10px', fontWeight: 'bold', fill: '#1e293b' }} /></Bar>
+                                <Bar dataKey="eac" name="EAC" fill="#f59e0b" radius={[0, 4, 4, 0]}><LabelList dataKey="eac" position="right" formatter={(v) => formatNum(v)} style={{ fontSize: '10px', fontWeight: 'bold', fill: '#1e293b' }} /></Bar>
                             </BarChart>
                         </ResponsiveContainer>
                     </div>

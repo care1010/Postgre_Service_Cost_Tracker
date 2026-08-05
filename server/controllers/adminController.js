@@ -1,27 +1,36 @@
 const db = require('../config/db');
 const bcrypt = require('bcrypt');
 
-// 1. Get All Users
+
+// 1. Get All Users - MODIFIED FOR ADMIN VISIBILITY RESTRICTIONS
 exports.getAllUsers = async (req, res) => {
     try {
         const { currentUserType, allowedCustomers } = req.query;
-        const customersList = allowedCustomers ? allowedCustomers.split(',').map(c => c.trim()) : [];
+        
+        // 🔥 Separator fix: UI '|||' bhej raha hai, toh split bhi usi se karenge
+        const customersList = allowedCustomers ? allowedCustomers.split('|||').map(c => c.trim().toLowerCase()) : [];
 
         let usersQuery = "SELECT id, email, type FROM users ORDER BY id ASC";
         let usersParams = [];
 
         if (currentUserType === 'admin') {
+            // 🔥 Requirement: 
+            // 1. super_admin nahi dikhna chahiye (u.type != 'super_admin')
+            // 2. Sirf wahi users dikhein jo admin ke customers se matched hain (INNER JOIN with access)
             usersQuery = `
                 SELECT DISTINCT u.id, u.email, u.type 
                 FROM users u
-                LEFT JOIN access a ON u.email = a.email
-                WHERE TRIM(LOWER(a.customer)) IN (?) OR u.type = 'user'
+                INNER JOIN access a ON u.email = a.email
+                WHERE u.type != 'super_admin' 
+                AND TRIM(LOWER(a.customer)) IN (?)
                 ORDER BY u.id ASC
             `;
-            usersParams = [customersList.map(c => c.toLowerCase())];
+            usersParams = [customersList];
         }
 
         const [users] = await db.query(usersQuery, usersParams);
+        
+        // Har user ke saare assigned customers fetch karna (for the table display)
         const [access] = await db.query("SELECT email, customer FROM access");
 
         const userData = users.map(u => ({
@@ -40,7 +49,8 @@ exports.getAllUsers = async (req, res) => {
 exports.createUser = async (req, res) => {
     const { email, password, type, customers, currentUserType, allowedCustomers } = req.body;
     try {
-        const adminCustomers = allowedCustomers ? allowedCustomers.split(',').map(c => c.trim()) : [];
+        // 🔥 UPDATE: split(',') ko split('|||') se replace kiya consistency ke liye
+        const adminCustomers = allowedCustomers ? allowedCustomers.split('|||').map(c => c.trim()) : [];
         
         if (currentUserType === 'admin') {
             if (type === 'super_admin') return res.status(403).json({ error: "Unauthorized to create Super Admin." });

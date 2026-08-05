@@ -1059,7 +1059,7 @@ exports.getPendingUsers = async (req, res) => {
 };
 
 // ===========================================
-// Export Summary View Data to Excel (100% Sync with UI Table)
+// Export Summary View & Dahsboard Page Data to Excel (100% Sync with UI Table)
 // ===========================================
 exports.exportToExcel = async (req, res) => {
     try {
@@ -1206,7 +1206,7 @@ exports.exportToExcel = async (req, res) => {
         if (String(collapseView) !== 'true') cols.push({ header: 'Category', key: 'categories', width: 25 });
         cols.push(
             { header: 'ASBL', key: 'asbl', width: 15 },
-            { header: 'ASBL LOA', key: 'asbl_loa', width: 15 },
+            // { header: 'ASBL LOA', key: 'asbl_loa', width: 15 },
             { header: 'PTD', key: 'ptd', width: 15 },
             { header: 'Open Commitment', key: 'open_commitment', width: 15 },
             { header: 'Non Committed', key: 'non_committed', width: 15 },
@@ -1218,7 +1218,7 @@ exports.exportToExcel = async (req, res) => {
         // Ensure proper numeric formatting in Excel
         rows.forEach(row => {
             const cleanRow = { ...row };
-            ['asbl', 'asbl_loa', 'ptd', 'open_commitment', 'non_committed', 'eac', 'eac_vs_asbl'].forEach(k => {
+            ['asbl', 'ptd', 'open_commitment', 'non_committed', 'eac', 'eac_vs_asbl'].forEach(k => {
                 if (cleanRow[k] === null || cleanRow[k] === undefined) {
                     cleanRow[k] = (k === 'asbl' || k === 'eac_vs_asbl') ? '-' : 0;
                 } else {
@@ -1246,9 +1246,15 @@ exports.clearDraftChanges = async (req, res) => {
 
 exports.exportReviewExcel = async (req, res) => {
     try {
+        const { type, allowedCustomers } = req.query;
+        let conditions = ["categories != 'Revenue'", "ABS(COALESCE(non_committed, 0) - COALESCE(non_committed_editable, 0)) > 0.01"];
+        let params = [];
+        applyRLS(type, allowedCustomers, conditions, params);
+        buildCommonFilters(req.query, conditions, params);
+        const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+
         res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
         res.setHeader('Content-Disposition', `attachment; filename=Review_Changes_Export.xlsx`);
-        
         const workbook = new ExcelJS.stream.xlsx.WorkbookWriter({ stream: res });
         const worksheet = workbook.addWorksheet('Review Data');
         
@@ -1256,44 +1262,31 @@ exports.exportReviewExcel = async (req, res) => {
             { header: 'BU', key: 'bu', width: 10 },
             { header: 'Customer', key: 'customer', width: 25 },
             { header: 'LOA Name', key: 'loa_name', width: 35 },
-            { header: 'LOA ID', key: 'loa_id', width: 35 },
-            { header: 'Cost/Revenue', key: 'cost_revenue', width: 35 },
+            { header: 'LOA ID', key: 'loa_id', width: 20 },
             { header: 'Category', key: 'categories', width: 25 },
             { header: 'ASBL', key: 'asbl', width: 15 },
-            { header: 'ASBL LOA', key: 'asbl_loa', width: 25 },
-            { header: 'PTD', key: 'ptd', width: 25 },
-            { header: 'Open Commitment', key: 'open_commitment', width: 25 },
-            { header: 'Original Non Committed', key: 'non_committed_original', width: 25 },
-            { header: 'Edited Non Committed', key: 'non_committed', width: 25 },
+            { header: 'PTD', key: 'ptd', width: 15 },
+            { header: 'Open Commitment', key: 'open_commitment', width: 15 },
+            { header: 'Old Non Committed', key: 'non_committed_original', width: 20 },
+            { header: 'New Non Committed', key: 'non_committed', width: 20 },
             { header: 'EAC', key: 'eac', width: 15 },
-            { header: 'EAC vs ASBL', key: 'eac_vs_asbl', width: 15 }
+            { header: 'Modified By', key: 'updated_by', width: 30 }, // 🔥 Added to Excel
+            { header: 'Last Modified', key: 'updated_at', width: 25 }  // 🔥 Added to Excel
         ];
 
         const query = `
-            SELECT 
-                bu, customer, loa_id, loa_name, cost_revenue, categories,
-                MAX(asbl) as asbl, 
-                MAX(asbl_loa) as asbl_loa, 
-                SUM(ptd) as ptd, 
-                MAX(open_commitment_KEUR) as open_commitment, 
-                MAX(non_committed_editable) as non_committed, 
-                MAX(non_committed) as non_committed_original,
-                (SUM(ptd) + MAX(open_commitment_KEUR) + MAX(non_committed_editable)) as eac,
-                (MAX(asbl) - (SUM(ptd) + MAX(open_commitment_KEUR) + MAX(non_committed_editable))) as eac_vs_asbl
-            FROM final_dashboard_table
-            WHERE categories != 'Revenue' 
-            AND ABS(COALESCE(non_committed, 0) - COALESCE(non_committed_editable, 0)) > 0.01
+            SELECT bu, customer, loa_id, loa_name, cost_revenue, categories, MAX(asbl) as asbl, SUM(ptd) as ptd, 
+            MAX(open_commitment_KEUR) as open_commitment, MAX(non_committed_editable) as non_committed, 
+            MAX(non_committed) as non_committed_original, MAX(updated_by) as updated_by,
+            TO_CHAR(MAX(updated_at), 'DD-Mon-YYYY HH24:MI') as updated_at,
+            (SUM(ptd) + MAX(open_commitment_KEUR) + MAX(non_committed_editable)) as eac
+            FROM final_dashboard_table ${whereClause}
             GROUP BY bu, customer, loa_id, loa_name, cost_revenue, categories
-            ORDER BY loa_name ASC, cost_revenue ASC
         `;
-
-        const [rows] = await db.query(query);
+        const [rows] = await db.query(query, params);
         rows.forEach(row => worksheet.addRow(row).commit());
         await workbook.commit();
-    } catch (error) { 
-        console.error("exportReviewExcel Error:", error);
-        res.status(500).send("Export failed: " + error.message); 
-    }
+    } catch (error) { res.status(500).send("Export failed"); }
 };
 
 exports.getCategories = async (req, res) => {
@@ -1637,17 +1630,17 @@ const getDashboardTableSQL = (groupByCols, asblCols, ncCols) => {
     
     // 1. Safe Subquery Selection
     const asblSubquery = hasAsbl ? `MAX(${asblCols})` : `0`;
-    const asblLoaSubquery = hasAsbl ? `MAX(asbl_loa)` : `0`;
+    // const asblLoaSubquery = hasAsbl ? `MAX(asbl_loa)` : `0`;
     const ncSubquery = hasNc ? `MAX(${ncCols})` : `0`;
 
     // 2. Safe Middle Aggregation (Prevents Postgres MAX(0) Error!)
     const catAsbl = hasAsbl ? `MAX(COALESCE(static.asbl_val, 0))` : `0`;
-    const catAsblLoa = hasAsbl ? `MAX(COALESCE(static.asbl_loa_val, 0))` : `0`;
+    // const catAsblLoa = hasAsbl ? `MAX(COALESCE(static.asbl_loa_val, 0))` : `0`;
     const catNc = hasNc ? `MAX(COALESCE(static.nc_val, 0))` : `0`;
 
     // 3. Final Outer Selection
     const asblSelect = hasAsbl ? 'ROUND(SUM(cat_asbl), 2)' : '0.00';
-    const asblLoaSelect = hasAsbl ? 'ROUND(SUM(cat_asbl_loa), 2)' : '0.00';
+    // const asblLoaSelect = hasAsbl ? 'ROUND(SUM(cat_asbl_loa), 2)' : '0.00';
     const ncSelect = hasNc ? 'ROUND(SUM(cat_nc), 2)' : '0.00';
     const varSelect = hasAsbl ? 'ROUND(SUM(cat_asbl) - SUM(cat_ptd + cat_oc + cat_nc), 2)' : '0.00';
 
@@ -1658,7 +1651,7 @@ const getDashboardTableSQL = (groupByCols, asblCols, ncCols) => {
         SELECT 
             ${groupByCols},
             CAST(${asblSelect} AS NUMERIC(15,2)) as asbl,
-            CAST(${asblLoaSelect} AS NUMERIC(15,2)) as asbl_loa,
+            
             ROUND(SUM(cat_ptd), 2) as ptd,
             ROUND(SUM(cat_oc), 2) as open_commitment,
             CAST(${ncSelect} AS NUMERIC(15,2)) as non_committed,
@@ -1669,7 +1662,7 @@ const getDashboardTableSQL = (groupByCols, asblCols, ncCols) => {
                 ${prefixCols},
                 t."Merged_wbs_categories",
                 ${catAsbl} as cat_asbl,
-                ${catAsblLoa} as cat_asbl_loa,
+                
                 SUM(t.ptd_val) as cat_ptd,
                 SUM(t.oc_val) as cat_oc,
                 ${catNc} as cat_nc
@@ -1684,7 +1677,7 @@ const getDashboardTableSQL = (groupByCols, asblCols, ncCols) => {
                 SELECT 
                     "Merged_wbs_categories", 
                     ${asblSubquery} as asbl_val, 
-                    ${asblLoaSubquery} as asbl_loa_val,
+                   
                     ${ncSubquery} as nc_val
                 FROM final_dashboard_table
                 GROUP BY "Merged_wbs_categories"
@@ -1850,43 +1843,49 @@ exports.getCustomerBuLoaViewTable = async (req, res) => {
 
 exports.getReviewChanges = async (req, res) => {
     try {
-        const { draw, start, length } = req.query;
+        const { draw, start, length, type, allowedCustomers } = req.query;
         const startIdx = parseInt(start) || 0;
         const limitIdx = parseInt(length) || 100;
+
+        let conditions = [
+            "categories != 'Revenue'",
+            "ABS(COALESCE(non_committed, 0) - COALESCE(non_committed_editable, 0)) > 0.01"
+        ];
+        let params = [];
+        
+        // Apply RLS & Shared Filters
+        applyRLS(type, allowedCustomers, conditions, params);
+        buildCommonFilters(req.query, conditions, params);
+
+        const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
         const matrixQuery = `
             SELECT 
                 bu, customer, loa_id, loa_name, cost_revenue, categories,
-                MAX(asbl) as asbl, 
-                MAX(asbl_loa) as asbl_loa, 
-                SUM(ptd) as ptd, 
+                MAX(asbl) as asbl, MAX(asbl_loa) as asbl_loa, SUM(ptd) as ptd, 
                 MAX(open_commitment_KEUR) as open_commitment, 
                 MAX(non_committed_editable) as non_committed, 
                 MAX(non_committed) as non_committed_original,
+                MAX(updated_by) as updated_by,
+                TO_CHAR(MAX(updated_at), 'DD-Mon-YYYY HH24:MI') as updated_at,
                 (SUM(ptd) + MAX(open_commitment_KEUR) + MAX(non_committed_editable)) as eac,
                 (MAX(asbl) - (SUM(ptd) + MAX(open_commitment_KEUR) + MAX(non_committed_editable))) as eac_vs_asbl
             FROM final_dashboard_table
-            WHERE categories != 'Revenue' 
-            AND ABS(COALESCE(non_committed, 0) - COALESCE(non_committed_editable, 0)) > 0.01
+            ${whereClause}
             GROUP BY bu, customer, loa_id, loa_name, cost_revenue, categories
             ORDER BY loa_name ASC, cost_revenue ASC
         `;
 
-        const [countRes] = await db.query(`SELECT COUNT(*) as total FROM (${matrixQuery}) as temp`);
-        const [dataRows] = await db.query(`${matrixQuery} LIMIT ?, ?`, [startIdx, limitIdx]);
-
-        const totalCount = parseInt(countRes[0]?.total || 0);
+        const [countRes] = await db.query(`SELECT COUNT(*) as total FROM (${matrixQuery}) as temp`, params);
+        const [dataRows] = await db.query(`${matrixQuery} LIMIT ?, ?`, [...params, startIdx, limitIdx]);
 
         res.status(200).json({
             draw: parseInt(draw) || 0,
-            recordsTotal: totalCount,
-            recordsFiltered: totalCount,
+            recordsTotal: parseInt(countRes[0]?.total || 0),
+            recordsFiltered: parseInt(countRes[0]?.total || 0),
             data: dataRows
         });
-    } catch (error) { 
-        console.error("getReviewChanges Error:", error);
-        res.status(500).json({ error: error.message }); 
-    }
+    } catch (error) { res.status(500).json({ error: error.message }); }
 };
 
 exports.finalizeChanges = async (req, res) => {
