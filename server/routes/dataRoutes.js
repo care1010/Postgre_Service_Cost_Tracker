@@ -135,4 +135,11 @@ router.get('/add-project-options', projectController.getAddProjectOptions);
 // Route to get all dropdown lists
 router.get('/dropdowns', getDropdownData);
 
+const accessRequestController = require('../controllers/accessRequestController');
+router.get('/access/dropdowns', accessRequestController.getDropdownData);
+router.post('/access/request', accessRequestController.submitRequest);
+router.get('/access/pending', accessRequestController.getPendingRequests);
+router.post('/access/approve', accessRequestController.approveRequest);
+router.post('/access/decline', accessRequestController.declineRequest);
+
 module.exports = router;
