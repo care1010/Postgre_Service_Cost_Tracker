@@ -52,13 +52,13 @@ const RequestAccess = ({ onBack }) => {
         setLoading(true);
         try {
             await axios.post(`${process.env.REACT_APP_API_URL}/api/data/request-access`, {
-                // 🔥 Sending arrays joined by '|||' as per your backend requirement
-                customer: formData.customers.join('|||'),
+                customer: formData.customers.join('|||'), // 'customer' not 'customers'
                 bu: formData.bus.join('|||'),
-                loa: formData.projects.join('|||'),
+                loa: formData.projects.join('|||'),      // 'loa' not 'projects'
                 email: formData.email,
                 password: formData.password
             });
+
 
             Swal.fire('Success', 'Access request submitted successfully.', 'success');
             onBack();

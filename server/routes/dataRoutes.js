@@ -11,6 +11,7 @@ const asblController = require('../controllers/asblController');
 const authController = require('../controllers/authController');
 const { getDropdownData, submitAccessRequest } = require('../controllers/accessRequestController'); // Import the new controller function
 const rawDrillController = require('../controllers/rawDrillController');
+const accessRequestController = require('../controllers/accessRequestController');
 
 // In teeno routes ke naam controller ke function se match hone chahiye
 router.get('/wbs-summary', dataController.getWbsSummary);
@@ -133,12 +134,9 @@ router.get('/admin/master-customers', adminController.getAllMasterCustomers);
 router.get('/add-project-options', projectController.getAddProjectOptions);
 
 // Route to get all dropdown lists
-router.get('/dropdowns', getDropdownData);
-router.post('/request-access', submitAccessRequest);
-
-const accessRequestController = require('../controllers/accessRequestController');
+router.get('/dropdowns', accessRequestController.getDropdownData);
 router.get('/access/dropdowns', accessRequestController.getDropdownData);
-router.post('/access/request', accessRequestController.submitRequest);
+router.post('/request-access', accessRequestController.submitRequest); 
 router.get('/access/pending', accessRequestController.getPendingRequests);
 router.post('/access/approve', accessRequestController.approveRequest);
 router.post('/access/decline', accessRequestController.declineRequest);
