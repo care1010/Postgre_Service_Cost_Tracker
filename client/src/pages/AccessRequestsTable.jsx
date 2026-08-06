@@ -1,76 +1,71 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
+import axios from 'axios';
+import Swal from 'sweetalert2';
 
 const AccessRequestsTable = ({ onBack }) => {
-    // Mock Data updated to remove customerName
-    const requests = [
-        { id: 1, accountName: "Finance Ops", bu: "NI", projectName: "Project X", email: "user1@nokia.com", status: "Pending" },
-        { id: 2, accountName: "Network Planning", bu: "CNS", projectName: "LOA 2024", email: "user2@nokia.com", status: "Pending" },
-    ];
+    const [requests, setRequests] = useState([]);
+    const [loading, setLoading] = useState(true);
+
+    const fetchRequests = async () => {
+        try {
+            const res = await axios.get(`${process.env.REACT_APP_API_URL}/api/data/access/pending`);
+            setRequests(res.data);
+        } catch (err) { console.error(err); } finally { setLoading(false); }
+    };
+
+    useEffect(() => { fetchRequests(); }, []);
+
+    const handleAction = async (id, action) => {
+        try {
+            const endpoint = action === 'approve' ? 'approve' : 'decline';
+            await axios.post(`${process.env.REACT_APP_API_URL}/api/data/access/${endpoint}`, { id });
+            Swal.fire("Success", `Request ${action}d successfully`, "success");
+            fetchRequests(); // Refresh table
+        } catch (err) { Swal.fire("Error", "Failed to process request", "error"); }
+    };
 
     return (
-        <div className="min-h-screen bg-slate-50 p-6 md:p-10 font-['Calibri',_sans-serif]">
+        <div className="min-h-screen bg-slate-50 p-6 md:p-10 font-sans">
             <div className="max-w-7xl mx-auto">
                 
-                <div className="flex flex-col md:flex-row md:items-center justify-between mb-8 gap-4">
+                <div className="flex justify-between items-center mb-8">
                     <div>
-                        <button 
-                            onClick={onBack}
-                            className="flex items-center text-slate-700 hover:text-blue-600 transition-all font-bold text-sm mb-2 group"
-                        >
-                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mr-2 group-hover:-translate-x-1 transition-transform">
-                                <path d="M19 12H5M12 19l-7-7 7-7"/>
-                            </svg>
-                            Back to Request Form
-                        </button>
-                        <h1 className="text-3xl font-black text-slate-800">Access Requests Management</h1>
-                        <p className="text-slate-500 text-sm">Review and manage tool access requests.</p>
+                        <button onClick={onBack} className="text-blue-600 font-bold text-sm mb-2 hover:underline">&larr; Back to Login</button>
+                        <h1 className="text-3xl font-black text-slate-800">Pending Access Requests</h1>
                     </div>
-                    
-                    <div className="bg-blue-50 text-blue-700 px-4 py-2 rounded-lg text-sm font-bold border border-blue-100">
+                    <div className="bg-blue-50 text-blue-700 px-4 py-2 rounded-lg font-bold border border-blue-200">
                         Total Pending: {requests.length}
                     </div>
                 </div>
 
                 <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
-                    <div className="overflow-x-auto">
-                        <table className="w-full text-left border-collapse">
-                            <thead>
-                                <tr className="bg-slate-50 border-b border-slate-200">
-                                    <th className="p-4 text-[12px] font-bold text-slate-500 uppercase tracking-wider">Customer Account Name</th>
-                                    <th className="p-4 text-[12px] font-bold text-slate-500 uppercase tracking-wider">BU</th>
-                                    <th className="p-4 text-[12px] font-bold text-slate-500 uppercase tracking-wider">Project/LOA</th>
-                                    <th className="p-4 text-[12px] font-bold text-slate-500 uppercase tracking-wider">Email Address</th>
-                                    <th className="p-4 text-[12px] font-bold text-slate-500 uppercase tracking-wider text-center">Actions</th>
+                    <table className="w-full text-left">
+                        <thead className="bg-slate-100">
+                            <tr>
+                                <th className="p-4 text-xs font-bold text-slate-500 uppercase">Email Address</th>
+                                <th className="p-4 text-xs font-bold text-slate-500 uppercase">Requested Customers</th>
+                                <th className="p-4 text-xs font-bold text-slate-500 uppercase">BU / LOA</th>
+                                <th className="p-4 text-xs font-bold text-slate-500 uppercase text-center">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                            {loading ? <tr><td colSpan="4" className="text-center p-4">Loading...</td></tr> : 
+                             requests.length === 0 ? <tr><td colSpan="4" className="text-center p-4 text-slate-500">No pending requests.</td></tr> :
+                             requests.map((req) => (
+                                <tr key={req.id} className="hover:bg-slate-50">
+                                    <td className="p-4 font-bold text-slate-800">{req.email}</td>
+                                    <td className="p-4 text-xs text-slate-600 max-w-xs truncate" title={req.requested_customers.split('|||').join(', ')}>
+                                        {req.requested_customers.split('|||').join(', ')}
+                                    </td>
+                                    <td className="p-4 text-xs text-slate-600">{req.bu || '-'} / {req.project_name || '-'}</td>
+                                    <td className="p-4 flex justify-center gap-2">
+                                        <button onClick={() => handleAction(req.id, 'approve')} className="px-3 py-1.5 bg-green-100 text-green-700 font-bold rounded-lg hover:bg-green-200">Approve</button>
+                                        <button onClick={() => handleAction(req.id, 'decline')} className="px-3 py-1.5 bg-red-100 text-red-700 font-bold rounded-lg hover:bg-red-200">Decline</button>
+                                    </td>
                                 </tr>
-                            </thead>
-                            <tbody className="divide-y divide-slate-100">
-                                {requests.map((req) => (
-                                    <tr key={req.id} className="hover:bg-slate-50/50 transition-colors">
-                                        <td className="p-4 text-sm text-slate-700 font-medium">{req.accountName}</td>
-                                        <td className="p-4 text-sm text-slate-600">{req.bu || '-'}</td>
-                                        <td className="p-4 text-sm text-slate-700">{req.projectName}</td>
-                                        <td className="p-4 text-sm text-blue-600 font-medium">{req.email}</td>
-                                        <td className="p-4">
-                                            <div className="flex items-center justify-center gap-2">
-                                                <button 
-                                                    onClick={() => alert(`Approved: ${req.email}`)}
-                                                    className="px-3 py-1.5 bg-emerald-50 text-emerald-600 hover:bg-emerald-600 hover:text-white rounded-lg text-xs font-bold transition-all border border-emerald-100"
-                                                >
-                                                    Approve
-                                                </button>
-                                                <button 
-                                                    onClick={() => alert(`Declined: ${req.email}`)}
-                                                    className="px-3 py-1.5 bg-rose-50 text-rose-600 hover:bg-rose-600 hover:text-white rounded-lg text-xs font-bold transition-all border border-rose-100"
-                                                >
-                                                    Decline
-                                                </button>
-                                            </div>
-                                        </td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    </div>
+                            ))}
+                        </tbody>
+                    </table>
                 </div>
             </div>
         </div>
