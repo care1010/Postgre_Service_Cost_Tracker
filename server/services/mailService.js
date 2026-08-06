@@ -2,10 +2,10 @@ const transporter = require("../config/mailer");
 
 const sendAccessRequestMail = async (request) => {
     const mailOptions = {
-        from: '"Service Cost Tracker" <akash.1.singh.ext@nokia.com>',
+        from: '"Service Cost Tracker" <care.ni_india@nokia.com>',
 
         // Admin mailbox
-        to: "akash.1.singh.ext@nokia.com",
+        to: ["akash.1.singh.ext@nokia.com", "neha.sain.ext@nokia.com"],
 
         // Optional: Reply goes directly to requester
         replyTo: request.email,
