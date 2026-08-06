@@ -13,6 +13,7 @@ import MyAccess from './pages/MyAccess';
 import Logs from './pages/Logs';
 import ERPResource from './pages/ERPResource';
 import AccessRequestsTable from './pages/AccessRequestsTable'; // 🔥 Ye line add karein
+import RawDrill from './pages/RawDrill'
 
 // ============================================================
 // DEFAULT FILTERS — ek jagah define karo, dono pages use karein
@@ -104,6 +105,7 @@ function App() {
                   filters={sharedFilters}
                   onFilterChange={handleFilterChange}
                   onResetFilters={handleResetFilters}
+                  setActiveTab={setActiveTab}
                 />
               )}
               {activeTab === 'add-project' && <AddProject user={user} />}
@@ -126,6 +128,14 @@ function App() {
               {activeTab === 'access-requests' && (user?.type === 'admin' || user?.type === 'super_admin') && (
                   <AccessRequestsTable onBack={() => setActiveTab('summary')} />
               )}
+              {activeTab === 'cj74/cji5' && (
+                              <RawDrill
+                                user={user}
+                                filters={sharedFilters} // Same filters jo Summary View mein hain
+                                onFilterChange={handleFilterChange}
+                                onResetFilters={handleResetFilters}
+                              />
+                            )}
               
               {['ftc'].includes(activeTab) && (
                 <div className="bg-white p-20 rounded-xl shadow text-center border-2 border-dashed border-gray-200">
