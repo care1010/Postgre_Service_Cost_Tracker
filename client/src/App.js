@@ -12,6 +12,7 @@ import DrillDownPage from './pages/DrillDownPage';
 import MyAccess from './pages/MyAccess';
 import Logs from './pages/Logs';
 import ERPResource from './pages/ERPResource';
+import AccessRequestsTable from './pages/AccessRequestsTable'; // 🔥 Ye line add karein
 
 // ============================================================
 // DEFAULT FILTERS — ek jagah define karo, dono pages use karein
@@ -122,6 +123,9 @@ function App() {
               )}
               {activeTab === 'my-access' && (<MyAccess user={user} />)}
               {activeTab === 'logs' && (<Logs />)}
+              {activeTab === 'access-requests' && (user?.type === 'admin' || user?.type === 'super_admin') && (
+                  <AccessRequestsTable onBack={() => setActiveTab('summary')} />
+              )}
               
               {['ftc'].includes(activeTab) && (
                 <div className="bg-white p-20 rounded-xl shadow text-center border-2 border-dashed border-gray-200">

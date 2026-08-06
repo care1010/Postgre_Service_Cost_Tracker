@@ -30,7 +30,12 @@ const AccessRequestsTable = ({ onBack }) => {
                 
                 <div className="flex justify-between items-center mb-8">
                     <div>
-                        <button onClick={onBack} className="text-blue-600 font-bold text-sm mb-2 hover:underline">&larr; Back to Login</button>
+                        <button 
+                        onClick={onBack} 
+                        className="text-blue-600 font-bold text-sm mb-2 flex items-center gap-1 hover:underline"
+                    >
+                        &larr; Back to Dashboard
+                    </button>
                         <h1 className="text-3xl font-black text-slate-800">Pending Access Requests</h1>
                     </div>
                     <div className="bg-blue-50 text-blue-700 px-4 py-2 rounded-lg font-bold border border-blue-200">
@@ -49,22 +54,45 @@ const AccessRequestsTable = ({ onBack }) => {
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100">
-                            {loading ? <tr><td colSpan="4" className="text-center p-4">Loading...</td></tr> : 
-                             requests.length === 0 ? <tr><td colSpan="4" className="text-center p-4 text-slate-500">No pending requests.</td></tr> :
-                             requests.map((req) => (
-                                <tr key={req.id} className="hover:bg-slate-50">
-                                    <td className="p-4 font-bold text-slate-800">{req.email}</td>
-                                    <td className="p-4 text-xs text-slate-600 max-w-xs truncate" title={req.requested_customers.split('|||').join(', ')}>
-                                        {req.requested_customers.split('|||').join(', ')}
-                                    </td>
-                                    <td className="p-4 text-xs text-slate-600">{req.bu || '-'} / {req.project_name || '-'}</td>
-                                    <td className="p-4 flex justify-center gap-2">
-                                        <button onClick={() => handleAction(req.id, 'approve')} className="px-3 py-1.5 bg-green-100 text-green-700 font-bold rounded-lg hover:bg-green-200">Approve</button>
-                                        <button onClick={() => handleAction(req.id, 'decline')} className="px-3 py-1.5 bg-red-100 text-red-700 font-bold rounded-lg hover:bg-red-200">Decline</button>
-                                    </td>
-                                </tr>
-                            ))}
-                        </tbody>
+    {loading ? <tr><td colSpan="4" className="text-center p-4">Loading...</td></tr> : 
+     requests.length === 0 ? <tr><td colSpan="4" className="text-center p-4 text-slate-500">No pending requests.</td></tr> :
+     requests.map((req) => (
+        <tr key={req.id} className="hover:bg-slate-50 transition-colors">
+            <td className="p-4">
+                <div className="font-bold text-slate-800">{req.email}</div>
+                <div className="text-[10px] text-slate-400 italic">Requested on {new Date(req.created_at).toLocaleDateString()}</div>
+            </td>
+            <td className="p-4">
+                {/* 🔥 Ab ye ek single customer hi hoga */}
+                <span className="bg-blue-50 text-blue-700 px-3 py-1 rounded-full text-xs font-bold border border-blue-100">
+                    {req.requested_customers}
+                </span>
+            </td>
+            <td className="p-4">
+                <div className="text-xs font-semibold text-slate-600 truncate max-w-[200px]">
+                    <span className="text-slate-400 uppercase mr-1">BU:</span> {req.bu || '-'}
+                </div>
+                <div className="text-xs font-semibold text-slate-600 truncate max-w-[200px]">
+                    <span className="text-slate-400 uppercase mr-1">LOA:</span> {req.project_name || '-'}
+                </div>
+            </td>
+            <td className="p-4 flex justify-center gap-2">
+                <button 
+                    onClick={() => handleAction(req.id, 'approve')} 
+                    className="px-4 py-2 bg-emerald-600 text-white text-xs font-bold rounded-xl hover:bg-emerald-700 shadow-md shadow-emerald-100 transition-all active:scale-95"
+                >
+                    Approve
+                </button>
+                <button 
+                    onClick={() => handleAction(req.id, 'decline')} 
+                    className="px-4 py-2 bg-white border border-red-200 text-red-600 text-xs font-bold rounded-xl hover:bg-red-50 transition-all active:scale-95"
+                >
+                    Decline
+                </button>
+            </td>
+        </tr>
+    ))}
+</tbody>
                     </table>
                 </div>
             </div>

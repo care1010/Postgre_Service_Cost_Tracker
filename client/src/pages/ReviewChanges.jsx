@@ -72,17 +72,26 @@ const ReviewChanges = ({ user, filters, onFilterChange, onResetFilters, onBack }
             });
         });
 
+        // 🔥 NAYA: Improved Professional Popup
         const result = await Swal.fire({
-            title: "Submit Data?",
-            text: "This will update the main Summary View.",
+            title: "Finalize & Sync Database?",
+            text: "This action will move all draft changes to the production tables and trigger a background sync. Are you sure?",
             icon: "warning",
             showCancelButton: true,
-            confirmButtonText: "Yes, Submit",
-            confirmButtonColor: "#4169e1"
+            confirmButtonText: "Yes, Finalize All",
+            cancelButtonText: "Review More",
+            confirmButtonColor: "#2563eb",
+            cancelButtonColor: "#64748b",
+            reverseButtons: true
         });
 
         if (!result.isConfirmed) return;
-        Swal.fire({ title: "Submitting...", didOpen: () => Swal.showLoading() });
+        Swal.fire({ 
+            title: "Processing Finalization...", 
+            text: "Moving data to production and starting sync engine.",
+            allowOutsideClick: false,
+            didOpen: () => Swal.showLoading() 
+        });
 
         try {
             if (pendingUpdates.length > 0) {
@@ -92,9 +101,11 @@ const ReviewChanges = ({ user, filters, onFilterChange, onResetFilters, onBack }
                 });
             }
             const res = await axios.post(`${process.env.REACT_APP_API_URL}/api/data/finalize-changes`);
-            await Swal.fire("Success", res.data.message, "success");
+            await Swal.fire("Success", "All changes have been finalized and sync engine started!", "success");
             onBack();
-        } catch (err) { Swal.fire("Error", "Submission failed", "error"); }
+        } catch (err) { 
+            Swal.fire("Error", "Submission failed. Please try again.", "error"); 
+        }
     };
 
     // ─── TABLE COLUMNS (Perfect Alignment Restore) ───
@@ -167,6 +178,7 @@ const ReviewChanges = ({ user, filters, onFilterChange, onResetFilters, onBack }
                     showClearButton={true} 
                     collapseView={false} 
                     user={user}
+                    disableDrill={true} // 🔥 NAYA PROP: Review page pe drill band karne ke liye
                 />
             </div>
             </div>

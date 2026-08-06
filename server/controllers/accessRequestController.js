@@ -1,14 +1,8 @@
-<<<<<<< HEAD
-const db = require('../config/db'); // Sahi path jo aapne bataya
-const mailService = require("../services/mailService");
-=======
 const db = require('../config/db');
 const bcrypt = require('bcrypt');
->>>>>>> smtp/main
+const mailService = require("../services/mailService");
 
-// 🚫 NODEMAILER AND ETHEREAL COMPLETELY REMOVED FOR CORPORATE SAFETY
-// We will just print the email to the local terminal.
-
+// 1. Get Dropdown Data for the Request Form
 exports.getDropdownData = async (req, res) => {
     try {
         const [customerRows] = await db.query("SELECT DISTINCT customer_name FROM customer WHERE is_active = 1 ORDER BY customer_name");
@@ -20,80 +14,71 @@ exports.getDropdownData = async (req, res) => {
             bus: buRows.map(r => r.bu),
             loas: loaRows.map(r => r.loa_name)
         });
-    } catch (err) { res.status(500).json({ error: err.message }); }
-};
-
-exports.submitRequest = async (req, res) => {
-    const { email, password, customers, bu, projectName } = req.body;
-    try {
-        const [existingUser] = await db.query("SELECT id FROM users WHERE email = ?", [email]);
-        if (existingUser.length > 0) return res.status(400).json({ error: "User already exists in the system." });
-
-        const [existingReq] = await db.query("SELECT id FROM access_requests WHERE email = ? AND status = 'Pending'", [email]);
-        if (existingReq.length > 0) return res.status(400).json({ error: "A request is already pending for this email." });
-
-        const hashedPassword = await bcrypt.hash(password, 10);
-        const customerString = customers.join('|||'); 
-
-        await db.query(
-            "INSERT INTO access_requests (email, password, requested_customers, bu, project_name) VALUES (?, ?, ?, ?, ?)",
-            [email, hashedPassword, customerString, bu, projectName]
-        );
-
-        // 🛡️ 100% SECURE LOCAL LOGGING (NO NETWORK CALLS)
-        console.log("\n=======================================================");
-        console.log("📧 [MOCK EMAIL] - NEW ACCESS REQUEST");
-        console.log("=======================================================");
-        console.log(`TO      : admin@nokia.com`);
-        console.log(`SUBJECT : Action Required: New Access Request Pending`);
-        console.log(`BODY    :`);
-        console.log(`Hello Admin,\n`);
-        console.log(`A new access request has been submitted by: ${email}`);
-        console.log(`Requested Customers: ${customers.join(', ')}`);
-        console.log(`\nPlease log in to the portal to Approve or Decline this request.`);
-        console.log("=======================================================\n");
-
-        res.status(200).json({ message: "Request submitted successfully!" });
     } catch (err) { 
         res.status(500).json({ error: err.message }); 
     }
 };
 
-<<<<<<< HEAD
-// New function
-const submitAccessRequest = async (req, res) => {
-
+// 2. Submit Request (Saves to DB and Logs to Terminal)
+exports.submitRequest = async (req, res) => {
+    const { email, password, customer, bu, loa } = req.body; // customer/bu/loa are strings joined by |||
     try {
+        const [existingUser] = await db.query("SELECT id FROM users WHERE email = ?", [email]);
+        // Note: Hum user existence check submit pe nahi karenge, kyunki admin decide karega.
+        
+        const hashedPassword = await bcrypt.hash(password, 10);
+        
+        // Strings ko wapas array mein convert karo
+        const customerList = customer ? customer.split('|||') : [];
+        const buString = bu || '';
+        const loaString = loa || '';
 
+        if (customerList.length === 0) return res.status(400).json({ error: "No customers selected." });
+
+        // 🔥 Loop through each customer and create a separate row
+        for (const singleCust of customerList) {
+            await db.query(
+                "INSERT INTO access_requests (email, password, requested_customers, bu, project_name, status) VALUES (?, ?, ?, ?, ?, 'Pending')",
+                [email, hashedPassword, singleCust, buString, loaString]
+            );
+        }
+
+        console.log(`📧 [MOCK EMAIL] - ${customerList.length} New access rows created for ${email}`);
+
+        res.status(200).json({ message: "Access requests submitted successfully!" });
+    } catch (err) { 
+        res.status(500).json({ error: err.message }); 
+    }
+};
+
+// 3. SMTP Integrated Function (Sends real mail via mailService)
+exports.submitAccessRequest = async (req, res) => {
+    try {
         await mailService.sendAccessRequestMail(req.body);
-
         res.status(200).json({
             success: true,
             message: "Mail sent successfully."
         });
-
     } catch (err) {
-
         console.error("Mail Error:", err);
-
         res.status(500).json({
             success: false,
             message: err.message
         });
-
     }
-
 };
 
-module.exports = { getDropdownData, submitAccessRequest };
-=======
+// 4. Get All Pending Requests for Admin Panel
 exports.getPendingRequests = async (req, res) => {
     try {
         const [rows] = await db.query("SELECT id, email, requested_customers, bu, project_name, created_at FROM access_requests WHERE status = 'Pending' ORDER BY created_at DESC");
         res.status(200).json(rows);
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { 
+        res.status(500).json({ error: err.message }); 
+    }
 };
 
+// 5. 🔥 UPDATED: Approve Request with Confirmation Mail
 exports.approveRequest = async (req, res) => {
     const { id } = req.body;
     const connection = await db.getConnection();
@@ -103,33 +88,58 @@ exports.approveRequest = async (req, res) => {
         const [reqRows] = await connection.query("SELECT * FROM access_requests WHERE id = ?", [id]);
         if (reqRows.length === 0) throw new Error("Request not found");
         
-        const request = reqRows[0];
-        const customerList = request.requested_customers.split('|||');
+        const requestDetails = reqRows[0];
+        const singleCustomer = requestDetails.requested_customers;
 
-        await connection.query("INSERT INTO users (email, password, type) VALUES (?, ?, 'user')", [request.email, request.password]);
+        const [userExists] = await connection.query("SELECT email FROM users WHERE email = ?", [requestDetails.email]);
 
-        const accessMapping = customerList.map(c => [c, request.email]);
-        if (accessMapping.length > 0) {
-            await connection.query("INSERT INTO access (customer, email) VALUES ?", [accessMapping]);
+        if (userExists.length === 0) {
+            await connection.query("INSERT INTO users (email, password, type) VALUES (?, ?, 'user')", [requestDetails.email, requestDetails.password]);
         }
 
+        await connection.query("INSERT INTO access (customer, email) VALUES (?, ?)", [singleCustomer, requestDetails.email]);
         await connection.query("UPDATE access_requests SET status = 'Approved' WHERE id = ?", [id]);
 
         await connection.commit();
-        res.status(200).json({ message: "Access Approved and Account Created!" });
+
+        // 🔥 Trigger Success Mail
+        try {
+            await mailService.sendApprovalMail(requestDetails);
+        } catch (mailErr) {
+            console.error("Mail trigger failed, but DB updated:", mailErr);
+        }
+
+        res.status(200).json({ message: `Access granted and mail sent for ${singleCustomer}` });
     } catch (err) {
-        await connection.rollback();
+        if (connection) await connection.rollback();
         res.status(500).json({ error: err.message });
     } finally {
         connection.release();
     }
 };
 
+// 6. 🔥 UPDATED: Decline Request with Notification Mail
 exports.declineRequest = async (req, res) => {
+    const { id } = req.body;
     try {
-        const { id } = req.body;
+        // Fetch details first to know the email and entity
+        const [reqRows] = await db.query("SELECT * FROM access_requests WHERE id = ?", [id]);
+        if (reqRows.length === 0) return res.status(404).json({ error: "Request not found" });
+
+        const requestDetails = reqRows[0];
+
+        // Update status in DB
         await db.query("UPDATE access_requests SET status = 'Declined' WHERE id = ?", [id]);
-        res.status(200).json({ message: "Request Declined." });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+
+        // 🔥 Trigger Decline Mail
+        try {
+            await mailService.sendDeclineMail(requestDetails);
+        } catch (mailErr) {
+            console.error("Decline Mail failed, but DB updated:", mailErr);
+        }
+
+        res.status(200).json({ message: "Request Declined and user notified." });
+    } catch (err) { 
+        res.status(500).json({ error: err.message }); 
+    }
 };
->>>>>>> smtp/main

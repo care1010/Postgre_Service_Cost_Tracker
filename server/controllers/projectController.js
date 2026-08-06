@@ -330,34 +330,41 @@ exports.fixMissingSummaryRows = async (req, res) => {
     finally { if (connection) connection.release(); }
 };
 
-// 🔥 Add Project Form Options (Specifically for AddProject Page)
 exports.getAddProjectOptions = async (req, res) => {
     try {
         const { type, allowedCustomers } = req.query;
         
-        // 1. BU fetch (From Mapping table)
-        const buSql = `SELECT DISTINCT bu FROM wbs_loa_id_mapping1 WHERE bu IS NOT NULL ORDER BY 1`;
-        const [buRows] = await db.query(buSql);
+        // 1. BU fetch
+        const [buRows] = await db.query(`SELECT DISTINCT bu FROM wbs_loa_id_mapping1 WHERE bu IS NOT NULL ORDER BY 1`);
 
-        // 2. Customer fetch (From master 'customer' table)
+        // 2. Customer fetch with RLS
         let custConditions = ["customer_name IS NOT NULL"];
         let custParams = [];
-        
-        // 🔥 Using your new RLS logic
         applyRLS(type, allowedCustomers, custConditions, custParams);
+        const whereCust = custConditions.length > 0 ? `WHERE ${custConditions.join(' AND ')}` : '';
+        const [custRows] = await db.query(`SELECT DISTINCT customer_name FROM public.customer ${whereCust} ORDER BY 1`, custParams);
 
-        const whereSql = custConditions.length > 0 ? `WHERE ${custConditions.join(' AND ')}` : '';
-        const custSql = `SELECT DISTINCT customer_name FROM public.customer ${whereSql} ORDER BY 1`;
+        // 3. LOA ID & Name fetch with RLS (Mapping table se)
+        // Note: Mapping table mein column 'customer' h
+        let loaConditions = ["loa_id IS NOT NULL"];
+        let loaParams = [];
+        if (type !== 'super_admin' && allowedCustomers) {
+            const customersArray = allowedCustomers.split('|||').map(c => c.trim().toLowerCase()).filter(Boolean);
+            loaConditions.push(`TRIM(LOWER(customer)) IN (?)`);
+            loaParams.push(customersArray);
+        }
+        const whereLoa = loaConditions.length > 0 ? `WHERE ${loaConditions.join(' AND ')}` : '';
         
-
-        const [custRows] = await db.query(custSql, custParams);
+        const [loaIdRows] = await db.query(`SELECT DISTINCT loa_id FROM wbs_loa_id_mapping1 ${whereLoa} ORDER BY 1`, loaParams);
+        const [loaNameRows] = await db.query(`SELECT DISTINCT loa_name FROM wbs_loa_id_mapping1 ${whereLoa} ORDER BY 1`, loaParams);
 
         res.status(200).json({
             bus: buRows.map(r => r.bu),
-            customers: custRows.map(r => r.customer_name)  // List of unique customers
+            customers: custRows.map(r => r.customer_name),
+            loaIds: loaIdRows.map(r => r.loa_id),
+            loaNames: loaNameRows.map(r => r.loa_name)
         });
     } catch (error) {
-        console.error("AddProject Options Error:", error);
         res.status(500).json({ error: error.message });
     }
 };

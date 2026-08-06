@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import './Sidebar.css';
 import logo from '../assets/OIP.jpg';
 import MyAccess from '../pages/MyAccess';
@@ -105,6 +105,17 @@ const handleLogout = () => {
                     🛠 Admin Panel
                 </div>
             )}
+
+            {/* 🔥 NAYA BUTTON: Admin Access Requests (Only for Admins) */}
+                        {(user?.type === 'admin' || user?.type === 'super_admin') && (
+                            <div 
+                                className="menu-item" 
+                                onClick={() => { setActiveTab('access-requests'); setOpenMenu(false); }}
+                                style={{ cursor: 'pointer', color: '#2563eb', fontWeight: 'bold' }}
+                            >
+                                📩 Pending Requests
+                            </div>
+                        )}
 
           {/* My Access Tab everybody can see */}
           <div

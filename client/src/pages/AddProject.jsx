@@ -14,6 +14,10 @@ const AddProject = ({ user }) => {
     const [buOptions, setBuOptions] = useState(['IP', 'Optics', 'FN']);
     const [customerOptions, setCustomerOptions] = useState([]);
 
+    // 🔥 NEW: States for LOA Dropdowns
+    const [loaIdOptions, setLoaIdOptions] = useState([]);
+    const [loaNameOptions, setLoaNameOptions] = useState([]);
+
     const initialRow = { bd: '', customer: '', loa_id: '', loa_name: '', wbs_type: '', wbs: '', wbs_desc: '' };
     const [gridData, setGridData] = useState([{ ...initialRow }]);
 
@@ -34,6 +38,9 @@ const AddProject = ({ user }) => {
             
             if (res.data.bus) setBuOptions(res.data.bus);
             if (res.data.customers) setCustomerOptions(res.data.customers); // 🔥 Corrected key
+            // 🔥 NEW: Setting LOA options
+                if (res.data.loaIds) setLoaIdOptions(res.data.loaIds);
+                if (res.data.loaNames) setLoaNameOptions(res.data.loaNames);
         } catch (err) {
             console.error("Error fetching dropdown options:", err);
         }
@@ -193,8 +200,37 @@ const AddProject = ({ user }) => {
                                                     ))}
                                                 </select>
                                             </td>
-                                            <td className="p-1"><input className="w-full p-2 bg-transparent outline-none focus:bg-white font-bold text-blue-600 border-b border-transparent focus:border-blue-400" value={row.loa_id} onChange={(e) => handleGridChange(idx, 'loa_id', e.target.value)} placeholder="24.IN.XXXX" /></td>
-                                            <td className="p-1"><input className="w-full p-2 bg-transparent outline-none focus:bg-white" value={row.loa_name} onChange={(e) => handleGridChange(idx, 'loa_name', e.target.value)} placeholder="Project XYZ" /></td>
+                                            {/* 🔥 LOA ID: Conditional Dropdown */}
+                    <td className="p-1">
+                        {mode === 'existing' ? (
+                            <select 
+                                className="w-full p-2 bg-transparent outline-none cursor-pointer font-bold text-blue-600 border-b border-transparent focus:border-blue-400"
+                                value={row.loa_id}
+                                onChange={(e) => handleGridChange(idx, 'loa_id', e.target.value)}
+                            >
+                                <option value="">Select ID</option>
+                                {loaIdOptions.map(id => <option key={id} value={id}>{id}</option>)}
+                            </select>
+                        ) : (
+                            <input className="w-full p-2 bg-transparent outline-none focus:bg-white font-bold text-blue-600 border-b border-transparent focus:border-blue-400" value={row.loa_id} onChange={(e) => handleGridChange(idx, 'loa_id', e.target.value)} placeholder="24.IN.XXXX" />
+                        )}
+                    </td>
+
+                    {/* 🔥 LOA NAME: Conditional Dropdown */}
+                    <td className="p-1">
+                        {mode === 'existing' ? (
+                            <select 
+                                className="w-full p-2 bg-transparent outline-none cursor-pointer text-slate-700 border-b border-transparent focus:border-blue-400"
+                                value={row.loa_name}
+                                onChange={(e) => handleGridChange(idx, 'loa_name', e.target.value)}
+                            >
+                                <option value="">Select Project</option>
+                                {loaNameOptions.map(name => <option key={name} value={name}>{name}</option>)}
+                            </select>
+                        ) : (
+                            <input className="w-full p-2 bg-transparent outline-none focus:bg-white" value={row.loa_name} onChange={(e) => handleGridChange(idx, 'loa_name', e.target.value)} placeholder="Project XYZ" />
+                        )}
+                    </td>
                                             <td className="p-1">
                                                 <select className="w-full p-2 bg-transparent outline-none cursor-pointer" value={row.wbs_type} onChange={(e) => handleGridChange(idx, 'wbs_type', e.target.value)}>
                                                     <option value="">Select</option>

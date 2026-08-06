@@ -9,7 +9,7 @@ import { HiOutlineSave, HiOutlineTrash } from "react-icons/hi";
 import Swal from 'sweetalert2';
 import { useNavigate } from 'react-router-dom';
 
-const DataTable = ({ title, columns, apiUrl, filters, onKpiUpdate, showSaveButton = true, showClearButton = false, collapseView = false, user }) => {
+const DataTable = ({ title, columns, apiUrl, filters, onKpiUpdate, showSaveButton = true, showClearButton = false, collapseView = false, user, disableDrill = false }) => {
     const tableRef = useRef(null);
     const dataTableInstance = useRef(null);
     const isFirstRender = useRef(true); 
@@ -191,7 +191,11 @@ const DataTable = ({ title, columns, apiUrl, filters, onKpiUpdate, showSaveButto
                     const drillFields = ['ptd', 'open_commitment_KEUR'];
 
                     if (type === 'display' && drillFields.includes(col.field)) {
-                        return `<span class="drill-link text-grey-600 font-bold cursor-pointer hover:underline" data-field="${col.field}" data-uniquekey="${row.unique_key || row.Merged_wbs_categories}" data-loaid="${row.loa_id}" data-loa="${row.loa_name}" data-category="${row.categories}" data-value="${data}">${fmt(data)}</span>`;
+                        // 🔥 CONDITION: Agar disableDrill true hai toh normal text return karo, varna span
+                        if (disableDrill) {
+                            return `<span class="font-bold text-slate-700">${fmt(data)}</span>`;
+                        }
+                        return `<span class="drill-link text-blue-600 font-bold cursor-pointer hover:underline" data-field="${col.field}" data-uniquekey="${row.unique_key || row.Merged_wbs_categories}" data-loaid="${row.loa_id}" data-loa="${row.loa_name}" data-category="${row.categories}" data-value="${data}">${fmt(data)}</span>`;
                     }
                     return data;
                 }
@@ -223,6 +227,7 @@ const DataTable = ({ title, columns, apiUrl, filters, onKpiUpdate, showSaveButto
                                 <td class="font-bold text-grey-700">${rowData.loa_id}</td>
                                 <td></td><td></td>
                                 <td class="text-right font-bold text-grey-900">${fmt(asbl)}</td>
+                                
                                 
                                 <td class="text-right font-bold text-grey-900">${fmt(ptd)}</td>
                                 <td class="text-right font-bold text-grey-900">${fmt(oc)}</td>

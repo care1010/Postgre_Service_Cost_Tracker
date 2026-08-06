@@ -266,7 +266,7 @@ const AdminCronPanel = ({ user }) => {
                         'Add WBS to existing LOA',
                         'Upload ASBL data',
                         'Upload PTD data (CJ74/CJI5)',
-                        'Save Non-Committed changes',
+                        'Save Non-Committed changes by Admin/SuperAdmin',
                     ].map((t, i) => (
                         <div key={i} className="flex items-center gap-2">
                             <span className="w-5 h-5 bg-amber-200 rounded-full flex items-center justify-center text-xs font-black">{i + 1}</span>

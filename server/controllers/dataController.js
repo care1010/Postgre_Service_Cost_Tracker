@@ -1028,7 +1028,7 @@ exports.updateNonCommitted = async (req, res) => {
             WHERE ABS(non_committed - non_committed_editable) > 0.01 OR non_committed_editable <> 0
         `);
 
-        triggerAutoSync('non_committed_saved');
+        // triggerAutoSync('non_committed_saved');
 
         filterCache.flushAll(); // Clear Cache
         res.status(200).json({ message: `Successfully saved changes for ${totalUpdated} categories!`, updatedCount: totalUpdated });
@@ -1916,6 +1916,9 @@ exports.finalizeChanges = async (req, res) => {
             SET eac = (ptd + open_commitment_KEUR + non_committed),
                 eac_vs_asbl = (asbl - (ptd + open_commitment_KEUR + non_committed))
         `);
+
+        // ✅ Trigger Auto Sync engine specifically after Admin Finalizes
+        triggerAutoSync('non_committed_finalized');
 
         filterCache.flushAll(); // Flush RAM Cache
         res.status(200).json({ message: "All changes finalized successfully!" });
