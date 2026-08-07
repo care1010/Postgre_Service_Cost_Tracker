@@ -3,24 +3,61 @@ const bcrypt = require('bcrypt');
 const mailService = require("../services/mailService");
 
 // 1. Get Dropdown Data for the Request Form
-// 1. Get Dropdown Data for the Request Form (Fixed Table & Column names)
+// 1. Get Dropdown Data with Cascading/Synced Filters
 exports.getDropdownData = async (req, res) => {
     try {
-        // Customers from 'customer' table
-        const [customerRows] = await db.query("SELECT DISTINCT customer_name FROM customer WHERE is_active = 1 ORDER BY customer_name");
+        const { customers, bus, loas } = req.query;
+
+        // Helper function to handle multi-select strings from frontend
+        const getArray = (val) => (val && val !== 'null') ? val.split('|||').map(v => v.trim()) : [];
+
+        const selCust = getArray(customers);
+        const selBus = getArray(bus);
+        const selLoas = getArray(loas);
+
+        // Common table name
+        const TABLE = 'wbs_loa_id_mapping1';
+
+        // 1. Fetch CUSTOMER options (Filtered by selected BU and LOA)
+        let custCond = ["1=1"];
+        let custParams = [];
+        if (selBus.length > 0) { custCond.push('bu IN (?)'); custParams.push(selBus); }
+        if (selLoas.length > 0) { custCond.push('loa_name IN (?)'); custParams.push(selLoas); }
         
-        // 🔥 FIX: BU from 'bu' table using 'bu_name' column
-        const [buRows] = await db.query("SELECT DISTINCT bu_name FROM bu WHERE bu_name IS NOT NULL ORDER BY bu_name");
-        
-        // 🔥 FIX: LOA Name from 'loa_name' table using 'loa_name' column
-        const [loaRows] = await db.query("SELECT DISTINCT loa_name FROM loa_name WHERE loa_name IS NOT NULL ORDER BY loa_name");
+        const [customerRows] = await db.query(
+            `SELECT DISTINCT customer FROM ${TABLE} WHERE ${custCond.join(' AND ')} AND customer IS NOT NULL ORDER BY customer`,
+            custParams
+        );
+
+        // 2. Fetch BU options (Filtered by selected Customer and LOA)
+        let buCond = ["1=1"];
+        let buParams = [];
+        if (selCust.length > 0) { buCond.push('customer IN (?)'); buParams.push(selCust); }
+        if (selLoas.length > 0) { buCond.push('loa_name IN (?)'); buParams.push(selLoas); }
+
+        const [buRows] = await db.query(
+            `SELECT DISTINCT bu FROM ${TABLE} WHERE ${buCond.join(' AND ')} AND bu IS NOT NULL ORDER BY bu`,
+            buParams
+        );
+
+        // 3. Fetch LOA options (Filtered by selected Customer and BU)
+        let loaCond = ["1=1"];
+        let loaParams = [];
+        if (selCust.length > 0) { loaCond.push('customer IN (?)'); loaParams.push(selCust); }
+        if (selBus.length > 0) { loaCond.push('bu IN (?)'); loaParams.push(selBus); }
+
+        const [loaRows] = await db.query(
+            `SELECT DISTINCT loa_name FROM ${TABLE} WHERE ${loaCond.join(' AND ')} AND loa_name IS NOT NULL ORDER BY loa_name`,
+            loaParams
+        );
 
         res.status(200).json({
-            customers: customerRows.map(r => r.customer_name),
-            bus: buRows.map(r => r.bu_name), // Map from bu_name
-            loas: loaRows.map(r => r.loa_name) // Map from loa_name
+            customers: customerRows.map(r => r.customer),
+            bus: buRows.map(r => r.bu),
+            loas: loaRows.map(r => r.loa_name)
         });
     } catch (err) { 
+        console.error("Dropdown Sync Error:", err.message);
         res.status(500).json({ error: err.message }); 
     }
 };

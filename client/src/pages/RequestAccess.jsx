@@ -20,15 +20,30 @@ const RequestAccess = ({ onBack }) => {
     const [viewRequests, setViewRequests] = useState(false);
     const [showPassword, setShowPassword] = useState(false);
 
+    // useEffect(() => {
+    //     const fetchDropdowns = async () => {
+    //         try {
+    //             const res = await axios.get(`${process.env.REACT_APP_API_URL}/api/data/access/dropdowns`);
+    //             setDropdowns(res.data);
+    //         } catch (err) { console.error("Failed to load dropdowns", err); }
+    //     };
+    //     fetchDropdowns();
+    // }, []);
+
     useEffect(() => {
         const fetchDropdowns = async () => {
             try {
-                const res = await axios.get(`${process.env.REACT_APP_API_URL}/api/data/access/dropdowns`);
+                const params = new URLSearchParams({
+                    customers: formData.customers.join('|||'),
+                    bus: formData.bus.join('|||'),
+                    loas: formData.projects.join('|||')
+                });
+                const res = await axios.get(`${process.env.REACT_APP_API_URL}/api/data/access/dropdowns?${params.toString()}`);
                 setDropdowns(res.data);
-            } catch (err) { console.error("Failed to load dropdowns", err); }
+            } catch (err) { console.error("Failed to sync dropdowns", err); }
         };
         fetchDropdowns();
-    }, []);
+    }, [formData.customers, formData.bus, formData.projects]);
 
     const handleGeneratePassword = () => {
         const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*";

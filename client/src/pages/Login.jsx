@@ -75,18 +75,15 @@ const Login = ({ onLoginSuccess }) => {
                         className="w-full max-w-[350px] mx-auto mb-6"
                     />
 
-                    <p className="text-[#557ca3] text-base">
-                        Trusted by Finance Team
-                    </p>
 
                     <h2 className="text-[30px] font-black text-slate-800 mt-3 leading-tight">
-                        Service Cost Tracker Platform
+                        NI INDIA Financial Cost Tracker
                     </h2>
 
-                    <p className="text-slate-500 text-sm mt-5 leading-relaxed">
+                    {/* <p className="text-slate-500 text-sm mt-5 leading-relaxed">
                         Manage project financials, analyze margins,
                         and automate workflows with an advanced BI dashboard.
-                    </p>
+                    </p> */}
                 </div>
             </div>
 
