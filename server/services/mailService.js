@@ -6,7 +6,7 @@ const transporter = require("../config/mailer");
 
 const TOOL_NAME = "NI INDIA Financial Cost Tracker";
 
-const TOOL_LINK = "http://10.68.32.163:3000/";
+const TOOL_LINK = "http://10.68.32.105:3001/";
 
 
 
@@ -14,13 +14,13 @@ const sendAccessRequestMail = async (request) => {
 
     const mailOptions = {
 
-        from: '"Service Cost Tracker" <care.ni_india@nokia.com>',
+        from: '"NI INDIA Financial Cost Tracker" <care.ni_india@nokia.com>',
 
-        to: ["neha.sain.ext@nokia.com", "skand.ahuja.ext@nokia.com", "arvind.jain@nokia.com", "mohsin.1.khan.ext@nokia.com"],
+        to: ["shraddha.dubey@nokia.com", "neha.sain.ext@nokia.com", "mohsin.1.khan.ext@nokia.com"],
 
         replyTo: request.email,
 
-        subject: `New Access Request - ${request.customer}`,
+        subject: `New Access Request: NI INDIA Financial Cost Tracker - ${request.customer}`,
 
         html: `
 
@@ -38,7 +38,7 @@ const sendAccessRequestMail = async (request) => {
 
                 <p>Hello Team,</p>
 
-                <p>A new access request has been submitted for the <strong>NI INDIA Financial Cost Tracker</strong>.</p>
+                <p>A new access request is raised for <strong>NI INDIA Financial Cost Tracker</strong>.</p>
 
 
 
@@ -46,7 +46,7 @@ const sendAccessRequestMail = async (request) => {
 
                     <tr>
 
-                        <td style="padding:10px; border:1px solid #ddd; background:#f5f5f5; width:35%;"><strong>Customer Account</strong></td>
+                        <td style="padding:10px; border:1px solid #ddd; background:#f5f5f5; width:35%;"><strong>Customer Account Name</strong></td>
 
                         <td style="padding:10px; border:1px solid #ddd;">${request.customer}</td>
 
@@ -82,7 +82,7 @@ const sendAccessRequestMail = async (request) => {
 
                 <div style="margin-top:30px; text-align:center;">
 
-                    <p style="font-size:15px; color:#666;">Review this request on the portal:</p>
+                    <p style="font-size:15px; color:#666;">Click the Link below to review the request:</p>
 
                     <a href="${TOOL_LINK}" style="background:#124191; color:#ffffff; padding:12px 25px; text-decoration:none; font-weight:bold; border-radius:5px; display:inline-block;">
 
@@ -94,7 +94,7 @@ const sendAccessRequestMail = async (request) => {
 
 
 
-                <p style="margin-top:25px;">Regards,<br><strong>NI INDIA PMO Team</strong></p>
+                <p style="margin-top:25px;">Best Regards,<br><strong>NI INDIA PMO Team</strong></p>
 
             </div>
 
@@ -118,13 +118,13 @@ const sendApprovalMail = async (request) => {
 
     const mailOptions = {
 
-        from: '"Service Cost Tracker" <care.ni_india@nokia.com>',
+        from: '"NI INDIA Financial Cost Tracker" <care.ni_india@nokia.com>',
 
         to: request.email,
 
-        cc: ["neha.sain.ext@nokia.com", "skand.ahuja.ext@nokia.com", "arvind.jain@nokia.com", "mohsin.1.khan.ext@nokia.com"],
+        cc: ["shraddha.dubey@nokia.com", "neha.sain.ext@nokia.com", "mohsin.1.khan.ext@nokia.com"],
 
-        subject: `Access Approved - Service Cost Tracker`,
+        subject: `Access Approved - NI INDIA Financial Cost Tracker`,
 
         html: `
 
@@ -140,9 +140,9 @@ const sendApprovalMail = async (request) => {
 
                 <p>Hello,</p>
 
-                <p>Your access request for the <strong>Service Cost Tracker</strong> has been <strong>Approved</strong>.</p>
+                <p>Your access request for the <strong>NI INDIA Financial Cost Tracker</strong> has been <strong>Approved</strong>.</p>
 
-                <p>You can now log in using the link below:</p>
+                <p>Click the link below to access:</p>
 
                
 
@@ -178,7 +178,7 @@ const sendApprovalMail = async (request) => {
 
                 </table>
 
-                <p style="margin-top:25px;">Regards,<br><strong>Service Cost Tracker Team</strong></p>
+                <p style="margin-top:25px;">Best Regards,<br><strong>NI INDIA PMO Team</strong></p>
 
             </div>
 
@@ -196,13 +196,13 @@ const sendDeclineMail = async (request) => {
 
     const mailOptions = {
 
-        from: '"Service Cost Tracker" <care.ni_india@nokia.com>',
+        from: '"NI INDIA Financial Cost Tracker" <care.ni_india@nokia.com>',
 
         to: request.email,
 
-        cc: ["neha.sain.ext@nokia.com", "skand.ahuja.ext@nokia.com", "arvind.jain@nokia.com", "mohsin.1.khan.ext@nokia.com"],
+        cc: ["shraddha.dubey@nokia.com", "neha.sain.ext@nokia.com", "mohsin.1.khan.ext@nokia.com"],
 
-        subject: `Access Request Update - Service Cost Tracker`,
+        subject: `Access Request Update - NI INDIA Financial Cost Tracker`,
 
         html: `
 
@@ -244,7 +244,7 @@ const sendDeclineMail = async (request) => {
 
 
 
-                <p style="margin-top:25px;">Regards,<br><strong>Service Cost Tracker Team</strong></p>
+                <p style="margin-top:25px;">Best Regards,<br><strong>NI INDIA PMO Team</strong></p>
 
             </div>
 

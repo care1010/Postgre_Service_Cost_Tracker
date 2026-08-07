@@ -46,7 +46,7 @@ const RequestAccess = ({ onBack }) => {
 
         // Validations
         if (formData.customers.length === 0) return Swal.fire('Error', 'Please select at least one Customer Account.', 'warning');
-        if (formData.projects.length === 0) return Swal.fire('Error', 'Please select at least one Project.', 'warning');
+        // if (formData.projects.length === 0) return Swal.fire('Error', 'Please select at least one Project.', 'warning');
         if (formData.password.length < 8) return Swal.fire('Weak Password', 'Minimum 8 characters required.', 'warning');
 
         setLoading(true);
@@ -217,7 +217,7 @@ const RequestAccess = ({ onBack }) => {
 
                 <div className="max-w-md w-full mx-auto pt-10">
                     <h1 className="text-4xl font-black text-slate-800 tracking-tight mb-2">Request Access</h1>
-                    <p className="text-slate-600 text-[16px] mb-8">Select entities you need access for.</p>
+                    <p className="text-slate-600 text-[16px] mb-8">Select fields you need access for.</p>
 
                     <form onSubmit={handleSubmit} className="space-y-4">
                         <SearchableSelect
@@ -243,7 +243,6 @@ const RequestAccess = ({ onBack }) => {
                                 value={formData.projects}
                                 options={dropdowns.loas}
                                 placeholder="Select Project(s)..."
-                                required
                             />
                         </div>
 

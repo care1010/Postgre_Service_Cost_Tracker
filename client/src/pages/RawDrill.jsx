@@ -8,7 +8,7 @@ import 'datatables.net-dt/css/dataTables.dataTables.css';
 
 // ── CJ74 columns ──
 const CJ74_COLS = [
-    { data: 'sap_wbs',                  title: 'WBS' },
+    { data: 'sap_wbs',                  title: 'WBS', width: '500px' },
     { data: 'loa_id',                   title: 'LOA ID' },
     { data: 'year',                     title: 'Year' },
     { data: 'per',                      title: 'Per' },
