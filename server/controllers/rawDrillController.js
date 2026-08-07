@@ -132,9 +132,9 @@ exports.getRawData = async (req, res) => {
         let params = [];
 
         // Additional base cleanups for CJ74
-        if (tableType === 'cj74') {
-            conditions.push("ABS(COALESCE(ptd_val, 0)) > 0.01");
-        }
+        // if (tableType === 'cj74') {
+        //     conditions.push("ABS(COALESCE(ptd_val, 0)) > 0.01");
+        // }
 
         applyRLS(type, allowedCustomers, conditions, params);
         buildRawFilters(req.query, conditions, params);

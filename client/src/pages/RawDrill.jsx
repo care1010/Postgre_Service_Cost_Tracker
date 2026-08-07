@@ -319,7 +319,7 @@ const RawDrill = ({ user, filters, onFilterChange, onResetFilters }) => {
                     </div>
 
                     {/* 🔥 Right Side: Dynamic Power BI Style Card */}
-                    <div className="bg-white border-2 border-slate-200 shadow-sm px-6 py-2.5 rounded-xl flex items-center gap-4 min-w-[250px]">
+                    {/* <div className="bg-white border-2 border-slate-200 shadow-sm px-6 py-2.5 rounded-xl flex items-center gap-4 min-w-[250px]">
                         <div>
                             <p className="text-[11px] font-black text-slate-600 uppercase tracking-widest">
                                 {activeTab === 'cj74' ? 'Total (PTD)' : 'Total (Open Commitment)'}
@@ -328,7 +328,7 @@ const RawDrill = ({ user, filters, onFilterChange, onResetFilters }) => {
                                 {fmt(totalValue)} <span className="text-xs text-slate-600 font-bold ml-1">K€</span>
                             </p>
                         </div>
-                    </div>
+                    </div> */}
                 </div>
 
                 {/* Table Card */}
