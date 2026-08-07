@@ -2,6 +2,40 @@ import React, { useEffect, useState, useMemo } from 'react';
 import axios from 'axios';
 import { useLocation, useNavigate } from 'react-router-dom';
 
+
+const CJ74_COLS = [
+    { data: 'sap_wbs', title: 'WBS' }, { data: 'year', title: 'Year' }, { data: 'per', title: 'Per' },
+    { data: 'cost_element', title: 'Cost Element' }, { data: 'cost_element_name', title: 'Cost Element Name' },
+    { data: 'ptd_val', title: 'PTD VAL (K€)', className: 'text-right' }, { data: 'period', title: 'Period' },
+    { data: 'cocd', title: 'CoCd' }, { data: 'proj_def', title: 'Project Def' }, { data: 'profit_ctr', title: 'Profit Ctr' },
+    { data: 'tcurr', title: 'T Curr' }, { data: 'cost_element_descr', title: 'COST ELEMENT DESCR' },
+    { data: 'refdocno', title: 'Ref Doc No' }, { data: 'document_no', title: 'Document No' },
+    { data: 'doc_date', title: 'Doc Date' }, { data: 'postg_date', title: 'Postg Date' },
+    { data: 'offst_acct', title: 'Offset Acct' }, { data: 'material', title: 'Material' },
+    { data: 'material_description', title: 'Material Description' }, { data: 'created_on', title: 'Created On' },
+    { data: 'user_name', title: 'User Name' }, { data: 'pur_doc', title: 'Pur Doc' },
+    { data: 'purchase_order_text', title: 'Purchase Order Text' }, { data: 'loa_id', title: 'LOA ID' }
+];
+
+const CJI5_COLS = [
+    { data: 'project_def', title: 'PROJ DEF' }, { data: 'sap_wbs', title: 'WBS' },
+    { data: 'oc_val', title: 'OC VAL (K€)', className: 'text-right' }, { data: 'refdocno', title: 'REFDOCNO' },
+    { data: 'item', title: 'ITEM' }, { data: 'co_object_name', title: 'CO_OBJECT_NAME' },
+    { data: 'supplier', title: 'SUPPLIER' }, { data: 'name', title: 'NAME' },
+    { data: 'exch_rate', title: 'EXCH_RATE' }, { data: 'year', title: 'YEAR' },
+    { data: 'per', title: 'PER' }, { data: 'cost_element', title: 'COST_ELEMENT' },
+    { data: 'cost_element_descr', title: 'COST_ELEMENT_DESCR' }, { data: 'matl_group', title: 'MATL GROUP' },
+    { data: 'material', title: 'MATERIAL' }, { data: 'description', title: 'DESCRIPTION' },
+    { data: 'user_name', title: 'USER_NAME' }, { data: 'docc', title: 'DOCC' },
+    { data: 'quantity', title: 'QUANTITY' }, { data: 'qty_plan', title: 'QTY_PLAN' },
+    { data: 'debit_date', title: 'DEBIT_DATE' }, { data: 'doc_date', title: 'DOC_DATE' },
+    { data: 'cocode', title: 'COCODE' }, { data: 'report_currency', title: 'REPORT_CURRENCY' },
+    { data: 'tcurr', title: 'TCURR' }, { data: 'value_tcurr', title: 'VALUE TCUR' },
+    { data: 'obj_curr', title: 'OBJ CURR' }, { data: 'value_in_obj_crcy', title: 'VALUE IN OBJ CRCY' },
+    { data: 'loa_id', title: 'LOA ID' }
+];
+
+
 const DrillDownPage = () => {
     const location = useLocation();
     const navigate = useNavigate();
@@ -86,6 +120,20 @@ const DrillDownPage = () => {
 
     const isPTD = field === 'ptd';
 
+    const columns = field === 'ptd' ? CJ74_COLS : CJI5_COLS;
+
+    // Formatting Helpers
+    const formatValue = (key, val) => {
+        if (val === null || val === undefined) return '-';
+        if (key.includes('date') || key === 'created_on' || key === 'postg_date') {
+            try { return new Date(val).toLocaleDateString('en-GB'); } catch(e) { return val; }
+        }
+        if (key === 'ptd_val' || key === 'oc_val' || key.includes('value_')) {
+            return Number(val).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        }
+        return val.toString();
+    };
+
     return (
         <div className="min-h-screen bg-[#f8fafc] p-6 lg:p-8">
             
@@ -136,7 +184,7 @@ const DrillDownPage = () => {
                                 const valArr = Array.isArray(v) ? v.filter(x => x !== 'All') : (v && v !== 'All' ? [v] : []);
                                 if (valArr.length === 0) return null;
                                 return (
-                                    <span key={k} className="bg-indigo-50 text-indigo-800 text-[11px] font-bold px-3 py-1 rounded-full border border-indigo-100">
+                                    <span key={k} className="bg-indigo-50 text-indigo-800 text-[12px] font-bold px-3 py-1 rounded-full border border-indigo-100">
                                         <strong className="uppercase mr-1">{k.replace('_', ' ')}:</strong> {valArr.join(', ')}
                                     </span>
                                 );
@@ -213,27 +261,30 @@ const DrillDownPage = () => {
                     <table className="w-full">
                         <thead className="sticky top-0 z-10">
                             <tr className="bg-slate-100 border-b border-slate-200 shadow-sm">
-                                {data.length > 0 && Object.keys(data[0]).map((key, index) => (
+                                {/* 🔥 FIXED: Ab hum columns array se TITLE uthayenge na ki database se */}
+                                {columns.map((col, index) => (
                                     <th 
-                                        key={key} 
-                                        className={`px-4 py-3 text-left text-[11px] font-black text-slate-500 uppercase tracking-wider whitespace-nowrap ${index === 0 ? 'pl-6' : ''}`}
+                                        key={col.data} 
+                                        className={`px-4 py-3 text-left text-[14px] font-black text-slate-600 uppercase tracking-wider whitespace-nowrap ${index === 0 ? 'pl-6' : ''}`}
                                     >
-                                        {key.replace(/_/g, ' ')}
+                                        {col.title}
                                     </th>
                                 ))}
                             </tr>
                         </thead>
-                        <tbody className="text-[13px] font-medium text-slate-600 bg-white">
+                        <tbody className="text-[14px] font-medium text-slate-700 bg-white">
                             {currentRows.length > 0 ? currentRows.map((item, index) => (
                                 <tr key={index} className="border-b border-slate-50 hover:bg-slate-50 transition-colors">
-                                    {Object.entries(item).map(([key, val], i) => {
-                                        const isTargetColumn = key === 'ptd_val' || key === 'open_commitment';
+                                    {/* 🔥 FIXED: Ab hum columns array ke sequence mein DATA fill karenge */}
+                                    {columns.map((col, i) => {
+                                        const val = item[col.data];
+                                        const isTargetColumn = col.data === 'ptd_val' || col.data === 'oc_val';
                                         return (
                                             <td 
                                                 key={i} 
-                                                className={`px-4 py-3 whitespace-nowrap ${i === 0 ? 'pl-6' : ''} ${isTargetColumn ? 'bg-sky-50 font-black text-blue-700 border-x border-sky-100' : ''}`}
+                                                className={`px-4 py-3 whitespace-nowrap ${i === 0 ? 'pl-6' : ''} ${isTargetColumn ? 'bg-sky-50 font-black text-blue-700 border-x border-sky-100 text-right' : ''}`}
                                             >
-                                                {val === null ? '-' : val.toString()}
+                                                {formatValue(col.data, val)}
                                             </td>
                                         );
                                     })}

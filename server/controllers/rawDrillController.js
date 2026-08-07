@@ -165,6 +165,67 @@ exports.getRawData = async (req, res) => {
     }
 };
 
+// 🔥 NEW: Column Mapping to match UI (Exact match with RawDrill.jsx)
+const EXPORT_COLUMNS = {
+    cj74: [
+    { key: 'sap_wbs', header: 'WBS' },
+    { key: 'year', header: 'Year' },
+    { key: 'per', header: 'Per' },
+    { key: 'cost_element', header: 'Cost Element' },
+    { key: 'cost_element_name', header: 'Cost Element Name' },
+    { key: 'ptd_val', header: 'PTD VAL (K€)' },
+    { key: 'period', header: 'Period' },
+    { key: 'cocd', header: 'CoCd' },
+    { key: 'proj_def', header: 'Project Def' },
+    { key: 'profit_ctr', header: 'Profit Ctr' },
+    { key: 'tcurr', header: 'T Curr' },
+    { key: 'cost_element_descr', header: 'COST ELEMENT DESCR' },
+    { key: 'refdocno', header: 'Ref Doc No' },
+    { key: 'document_no', header: 'Document No' },
+    { key: 'doc_date', header: 'Doc Date' },
+    { key: 'postg_date', header: 'Postg Date' },
+    { key: 'offst_acct', header: 'Offset Acct' },
+    { key: 'material', header: 'Material' },
+    { key: 'material_description', header: 'Material Description' },
+    { key: 'created_on', header: 'Created On' },
+    { key: 'user_name', header: 'User Name' },
+    { key: 'pur_doc', header: 'Pur Doc' },
+    { key: 'purchase_order_text', header: 'Purchase Order Text' },
+    { key: 'loa_id', header: 'LOA ID' }
+],
+    cji5: [
+    { key: 'project_def', header: 'PROJ DEF' },
+    { key: 'sap_wbs', header: 'WBS' },
+    { key: 'oc_val', header: 'OC VAL (K€)' },
+    { key: 'refdocno', header: 'REFDOCNO' },
+    { key: 'item', header: 'ITEM' },
+    { key: 'co_object_name', header: 'CO_OBJECT_NAME' },
+    { key: 'supplier', header: 'SUPPLIER' },
+    { key: 'name', header: 'NAME' },
+    { key: 'exch_rate', header: 'EXCH_RATE' },
+    { key: 'year', header: 'YEAR' },
+    { key: 'per', header: 'PER' },
+    { key: 'cost_element', header: 'COST_ELEMENT' },
+    { key: 'cost_element_descr', header: 'COST_ELEMENT_DESCR' },
+    { key: 'matl_group', header: 'MATL GROUP' },
+    { key: 'material', header: 'MATERIAL' },
+    { key: 'description', header: 'DESCRIPTION' },
+    { key: 'user_name', header: 'USER_NAME' },
+    { key: 'docc', header: 'DOCC' },
+    { key: 'quantity', header: 'QUANTITY' },
+    { key: 'qty_plan', header: 'QTY_PLAN' },
+    { key: 'debit_date', header: 'DEBIT_DATE' },
+    { key: 'doc_date', header: 'DOC_DATE' },
+    { key: 'cocode', header: 'COCODE' },
+    { key: 'report_currency', header: 'REPORT_CURRENCY' },
+    { key: 'tcurr', header: 'TCURR' },
+    { key: 'value_tcurr', header: 'VALUE_TCUR' },
+    { key: 'obj_curr', header: 'OBJ_CURR' },
+    { key: 'value_in_obj_crcy', header: 'VALUE_IN_OBJ_CRCY' },
+    { key: 'loa_id', header: 'LOA ID' }
+]
+};
+
 // ==============================
 // EXPORT EXCEL RAW DATA
 // ==============================
@@ -173,29 +234,51 @@ exports.exportRawData = async (req, res) => {
         const { tableType, type, allowedCustomers } = req.query;
         const tableName = tableType === 'cj74' ? 't_cj74_transformed' : 't_cji5_transformed';
         
+        // Pick the correct column mapping
+        const columnsToExport = EXPORT_COLUMNS[tableType] || [];
+        if (columnsToExport.length === 0) throw new Error("Invalid Table Type for export");
+
+        // 🔥 Dynamic SELECT query using only specific keys
+        const selectFields = columnsToExport.map(c => `"${c.key}"`).join(', ');
+
         let conditions = ["1=1"];
         let params = [];
 
-        if (tableType === 'cj74') {
-            conditions.push("ABS(COALESCE(ptd_val, 0)) > 0.01");
-        }
-
+        // Apply same filters as UI
         applyRLS(type, allowedCustomers, conditions, params);
         buildRawFilters(req.query, conditions, params);
 
-        const [rows] = await db.query(`SELECT * FROM ${tableName} WHERE ${conditions.join(' AND ')} ORDER BY year DESC, per DESC`, params);
+        const sql = `SELECT ${selectFields} FROM ${tableName} WHERE ${conditions.join(' AND ')} ORDER BY year DESC, per DESC`;
+        
+        const [rows] = await db.query(sql, params);
         
         res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-        res.setHeader('Content-Disposition', `attachment; filename=Raw_Data_${tableType}_${Date.now()}.xlsx`);
+        res.setHeader('Content-Disposition', `attachment; filename=Raw_Data_${tableType}_${new Date().toISOString().split('T')[0]}.xlsx`);
         
         const workbook = new ExcelJS.stream.xlsx.WorkbookWriter({ stream: res });
         const worksheet = workbook.addWorksheet('Raw Data');
         
+        // 🔥 Set Excel Columns based on UI Titles
+        worksheet.columns = columnsToExport.map(col => ({
+            header: col.header,
+            key: col.key,
+            width: 20
+        }));
+
         if (rows.length > 0) {
-            worksheet.columns = Object.keys(rows[0]).map(key => ({ header: key.toUpperCase(), key, width: 20 }));
-            rows.forEach(row => worksheet.addRow(row).commit());
+            rows.forEach(row => {
+                // Ensure dates are formatted as strings for Excel clarity
+                const cleanRow = { ...row };
+                Object.keys(cleanRow).forEach(key => {
+                    if (key.includes('date') || key === 'created_on') {
+                        cleanRow[key] = cleanRow[key] ? new Date(cleanRow[key]).toLocaleDateString('en-GB') : '-';
+                    }
+                });
+                worksheet.addRow(cleanRow).commit();
+            });
         }
         await workbook.commit();
+        
     } catch (error) { 
         console.error("Raw Export Error:", error);
         res.status(500).send("Export failed: " + error.message); 
