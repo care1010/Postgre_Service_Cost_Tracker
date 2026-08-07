@@ -42,7 +42,7 @@ const handleLogout = () => {
     { id: 'erp_resource', label: 'Cross ERP'},
     { id: 'add-project', label: 'Add Project / WBS' },
     { id: 'asbl', label: 'ASBL' },
-    { id: 'cj74/cji5', label: 'CJ74/CJi5' },
+    { id: 'cj74/cji5', label: 'Cost Dump' },
     // { id: 'loa-view', label: 'Loa Wise View' },
     // Inhe sirf admin ya super_admin ko dikhao
     ...(user?.type !== 'user' ? [

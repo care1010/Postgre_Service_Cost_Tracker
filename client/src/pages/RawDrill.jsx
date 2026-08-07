@@ -280,7 +280,7 @@ const RawDrill = ({ user, filters, onFilterChange, onResetFilters }) => {
                             <HiDatabase size={22} />
                         </div>
                         <div>
-                            <h1 className="text-2xl font-black text-slate-800 uppercase tracking-tight">Raw Data for CJ74/CJi5</h1>
+                            <h1 className="text-2xl font-black text-slate-800 uppercase tracking-tight">Raw Data for PTD & OC</h1>
                         </div>
                     </div>
                     <button
@@ -304,7 +304,7 @@ const RawDrill = ({ user, filters, onFilterChange, onResetFilters }) => {
                                     : 'text-slate-500 hover:text-slate-700'
                                 }`}
                         >
-                            📊 CJ74 — (PTD)
+                            📊 (PTD)
                         </button>
                         <button
                             onClick={() => { setActiveTab('cji5'); setTotalValue(0); lastDrawRef.current = 0; }}
@@ -314,7 +314,7 @@ const RawDrill = ({ user, filters, onFilterChange, onResetFilters }) => {
                                     : 'text-slate-500 hover:text-slate-700'
                                 }`}
                         >
-                            📋 CJI5 — (Open Commitment)
+                            📋 (OC)
                         </button>
                     </div>
 
