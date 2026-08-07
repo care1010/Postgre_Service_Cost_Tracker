@@ -8,10 +8,10 @@ import 'datatables.net-dt/css/dataTables.dataTables.css';
 
 // ── CJ74 columns ──
 const CJ74_COLS = [
-    { data: 'sap_wbs',                  title: 'SAP WBS' },
+    { data: 'sap_wbs',                  title: 'WBS' },
     { data: 'loa_id',                   title: 'LOA ID' },
     { data: 'year',                     title: 'Year' },
-    { data: 'per',                      title: 'Period No' },
+    { data: 'per',                      title: 'Per' },
     { data: 'period',                   title: 'Period' },
     { data: 'cost_element',             title: 'Cost Element' },
     { data: 'cost_element_name',        title: 'CE Name' },
@@ -41,10 +41,10 @@ const CJ74_COLS = [
 
 // ── CJI5 columns ──
 const CJI5_COLS = [
-    { data: 'sap_wbs',          title: 'SAP WBS' },
+    { data: 'sap_wbs',          title: 'WBS' },
     { data: 'loa_id',           title: 'LOA ID' },
     { data: 'year',             title: 'Year' },
-    { data: 'per',              title: 'Period No' },
+    { data: 'per',              title: 'Period' },
     { data: 'cost_element',     title: 'Cost Element' },
     { data: 'cost_element_descr', title: 'CE Description' },
     { data: 'oc_val',           title: 'OC (K€)', className: 'text-right' },
@@ -161,7 +161,7 @@ const RawDrill = ({ user, filters, onFilterChange, onResetFilters }) => {
             scrollX:     true,
             scrollY:     'calc(100vh - 320px)',
             scrollCollapse: true,
-            autoWidth:   false,
+            autoWidth:   true,
             pageLength:  50,
             lengthMenu:  [25, 50, 100, 200],
             dom: '<"flex justify-between items-center mb-4"lf>rt<"flex justify-between items-center mt-4"ip>',
@@ -212,7 +212,7 @@ const RawDrill = ({ user, filters, onFilterChange, onResetFilters }) => {
                     if (type !== 'display') return data;
                     // Numeric columns
                     if (col.data === 'ptd_val' || col.data === 'oc_val') {
-                        return `<span class="font-bold text-blue-700">${fmt(data)}</span>`;
+                        return `<span class="font-bold text-black-700">${fmt(data)}</span>`;
                     }
                     // Date columns
                     if (col.data.includes('date') || col.data === 'created_on' || col.data === 'postg_date') {
@@ -280,8 +280,7 @@ const RawDrill = ({ user, filters, onFilterChange, onResetFilters }) => {
                             <HiDatabase size={22} />
                         </div>
                         <div>
-                            <h1 className="text-2xl font-black text-slate-800 uppercase tracking-tight">Line Item Explorer</h1>
-                            <p className="text-xs text-slate-400 font-semibold mt-0.5">Raw data from SAP CJ74 & CJI5 tables</p>
+                            <h1 className="text-2xl font-black text-slate-800 uppercase tracking-tight">Raw Data for CJ74/CJi5</h1>
                         </div>
                     </div>
                     <button
@@ -305,7 +304,7 @@ const RawDrill = ({ user, filters, onFilterChange, onResetFilters }) => {
                                     : 'text-slate-500 hover:text-slate-700'
                                 }`}
                         >
-                            📊 CJ74 — Actuals (PTD)
+                            📊 CJ74 — (PTD)
                         </button>
                         <button
                             onClick={() => { setActiveTab('cji5'); setTotalValue(0); lastDrawRef.current = 0; }}
@@ -315,18 +314,18 @@ const RawDrill = ({ user, filters, onFilterChange, onResetFilters }) => {
                                     : 'text-slate-500 hover:text-slate-700'
                                 }`}
                         >
-                            📋 CJI5 — Commitments (OC)
+                            📋 CJI5 — (Open Commitment)
                         </button>
                     </div>
 
                     {/* 🔥 Right Side: Dynamic Power BI Style Card */}
                     <div className="bg-white border-2 border-slate-200 shadow-sm px-6 py-2.5 rounded-xl flex items-center gap-4 min-w-[250px]">
                         <div>
-                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
-                                {activeTab === 'cj74' ? 'Total Actuals (PTD)' : 'Total Commitments (OC)'}
+                            <p className="text-[11px] font-black text-slate-600 uppercase tracking-widest">
+                                {activeTab === 'cj74' ? 'Total (PTD)' : 'Total (Open Commitment)'}
                             </p>
                             <p className={`text-xl font-black ${activeTab === 'cj74' ? 'text-emerald-600' : 'text-blue-600'}`}>
-                                {fmt(totalValue)} <span className="text-xs text-slate-400 font-bold ml-1">K€</span>
+                                {fmt(totalValue)} <span className="text-xs text-slate-600 font-bold ml-1">K€</span>
                             </p>
                         </div>
                     </div>
