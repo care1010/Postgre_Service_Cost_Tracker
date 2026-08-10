@@ -219,7 +219,7 @@ const EXPORT_COLUMNS = {
     { key: 'cocode', header: 'COCODE' },
     { key: 'report_currency', header: 'REPORT_CURRENCY' },
     { key: 'tcurr', header: 'TCURR' },
-    { key: 'value_tcurr', header: 'VALUE_TCUR' },
+    { key: 'value_tcur', header: 'VALUE_TCUR' },
     { key: 'obj_curr', header: 'OBJ_CURR' },
     { key: 'value_in_obj_crcy', header: 'VALUE_IN_OBJ_CRCY' },
     { key: 'loa_id', header: 'LOA ID' }
