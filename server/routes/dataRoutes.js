@@ -137,6 +137,7 @@ router.get('/add-project-options', projectController.getAddProjectOptions);
 router.get('/dropdowns', accessRequestController.getDropdownData);
 router.get('/access/dropdowns', accessRequestController.getDropdownData);
 router.post('/request-access', accessRequestController.submitRequest); 
+router.post('/access/request', accessRequestController.submitRequest);
 router.get('/access/pending', accessRequestController.getPendingRequests);
 router.post('/access/approve', accessRequestController.approveRequest);
 router.post('/access/decline', accessRequestController.declineRequest);

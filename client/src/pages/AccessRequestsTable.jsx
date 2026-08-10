@@ -49,7 +49,7 @@ const AccessRequestsTable = ({ onBack }) => {
                             <tr>
                                 <th className="p-4 text-xs font-bold text-slate-500 uppercase">Email Address</th>
                                 <th className="p-4 text-xs font-bold text-slate-500 uppercase">Requested Customers</th>
-                                <th className="p-4 text-xs font-bold text-slate-500 uppercase">BU / LOA</th>
+                                {/* <th className="p-4 text-xs font-bold text-slate-500 uppercase">BU / LOA</th> */}
                                 <th className="p-4 text-xs font-bold text-slate-500 uppercase text-center">Actions</th>
                             </tr>
                         </thead>
@@ -68,14 +68,14 @@ const AccessRequestsTable = ({ onBack }) => {
                     {req.requested_customers}
                 </span>
             </td>
-            <td className="p-4">
+            {/* <td className="p-4">
                 <div className="text-xs font-semibold text-slate-600 truncate max-w-[200px]">
                     <span className="text-slate-400 uppercase mr-1">BU:</span> {req.bu || '-'}
                 </div>
                 <div className="text-xs font-semibold text-slate-600 truncate max-w-[200px]">
                     <span className="text-slate-400 uppercase mr-1">LOA:</span> {req.project_name || '-'}
                 </div>
-            </td>
+            </td> */}
             <td className="p-4 flex justify-center gap-2">
                 <button 
                     onClick={() => handleAction(req.id, 'approve')} 

@@ -211,12 +211,12 @@ const Login = ({ onLoginSuccess }) => {
 
                             </label>
 
-                            {/* <button
+                            <button
                                 type="button"
                                 className="text-[14px] text-blue-600 font-bold hover:underline"
                             >
                                 Forgot Password?
-                            </button> */}
+                            </button>
 
                         </div>
 

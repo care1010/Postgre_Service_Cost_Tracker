@@ -30,7 +30,7 @@ const sendAccessRequestMail = async (request) => {
 
                 <h2 style="margin:0;">NI INDIA Financial Cost Tracker</h2>
 
-                <p style="margin:6px 0 0;">New Tool Access Request</p>
+                <p style="margin:6px 0 0;">New Access Request</p>
 
             </div>
 

@@ -62,52 +62,110 @@ exports.getDropdownData = async (req, res) => {
     }
 };
 
-// 2. Submit Request (Saves to DB and Logs to Terminal)
+// 2. Submit Request (Improved with Duplicate Checks)
 exports.submitRequest = async (req, res) => {
-    const { email, password, customer, bu, loa } = req.body; 
-    
+    const { email, password, customer, bu, loa } = req.body;
+
     try {
-        console.log("📥 Incoming Request for:", email);
+        console.log("📥 Incoming Request Validation for:", email);
 
         if (!email || !password || !customer) {
-            return res.status(400).json({ error: "Required fields missing (Email/Password/Customer)" });
+            return res.status(400).json({ success: false, error: "Required fields missing." });
         }
 
-        const hashedPassword = await bcrypt.hash(password, 10);
-        const customerList = customer ? customer.split('|||') : [];
-        const buString = bu || ''; 
-        const loaString = loa || ''; 
+        const cleanEmail = email.trim().toLowerCase();
+        const customerList = customer ? customer.split('|||').map(c => c.trim()).filter(Boolean) : [];
+        const buString = bu ? bu.trim() : '';
+        const loaString = loa ? loa.trim() : '';
 
-        // 1. Database Insertion Loop (USING '?' for db.js compatibility)
+        let alreadyHaveAccess = [];
+        let alreadyRequested = [];
+        let newlyAdded = [];
+
         for (const singleCust of customerList) {
-            await db.query(
-                'INSERT INTO "access_requests" ("email", "password", "requested_customers", "bu", "project_name", "status") VALUES (?, ?, ?, ?, ?, ?)',
-                [email, hashedPassword, singleCust, buString, loaString, 'Pending']
-            );
-        }
-        console.log(`✅ Success: Added ${customerList.length} rows to DB`);
+            const cleanCust = singleCust.trim().toLowerCase();
 
-        // 2. Send Email Notification
-        try {
-            await mailService.sendAccessRequestMail({
-                email,
-                customer: customerList.join(', '), 
-                bu: buString,
-                loa: loaString
-            });
-            console.log("📧 Notification Email Sent.");
-        } catch (mailErr) {
-            console.error("⚠️ Mail failed, but data saved:", mailErr.message);
+            // Check if user ALREADY HAS ACCESS
+            const [accessExists] = await db.query(
+                `SELECT id FROM "access" WHERE LOWER(TRIM(email)) = ? AND LOWER(TRIM(customer)) = ? LIMIT 1`,
+                [cleanEmail, cleanCust]
+            );
+
+            if (accessExists.length > 0) {
+                alreadyHaveAccess.push(singleCust);
+                continue;
+            }
+
+            // Check if request ALREADY PENDING or APPROVED
+            const [existingRequest] = await db.query(
+                `SELECT id FROM "access_requests" 
+                 WHERE LOWER(TRIM(email)) = ? 
+                 AND LOWER(TRIM(requested_customers)) = ? 
+                 AND LOWER(TRIM(COALESCE(bu, ''))) = ? 
+                 AND LOWER(TRIM(COALESCE(project_name, ''))) = ? 
+                 AND LOWER(TRIM(status)) IN ('pending', 'approved') LIMIT 1`,
+                [cleanEmail, cleanCust, buString.toLowerCase(), loaString.toLowerCase()]
+            );
+
+            if (existingRequest.length > 0) {
+                alreadyRequested.push(singleCust);
+                continue;
+            }
+
+            // Create New Request
+            const hashedPassword = await bcrypt.hash(password, 10);
+            await db.query(
+                `INSERT INTO "access_requests" (email, password, requested_customers, bu, project_name, status) VALUES (?, ?, ?, ?, ?, ?)`,
+                [email.trim(), hashedPassword, singleCust, buString, loaString, 'Pending']
+            );
+            newlyAdded.push(singleCust);
         }
-        
-        return res.status(200).json({ 
-            success: true, 
-            message: `Access request submitted successfully.` 
+
+        // --- Response Logic based on counts ---
+
+        // Case: No new entries were added (Only duplicates)
+        if (newlyAdded.length === 0) {
+            if (alreadyHaveAccess.length > 0) {
+                return res.status(200).json({
+                    success: false,
+                    alreadyAccess: alreadyHaveAccess,
+                    message: `You already have access for: ${alreadyHaveAccess.join(', ')}.`
+                });
+            }
+            if (alreadyRequested.length > 0) {
+                return res.status(200).json({
+                    success: false,
+                    alreadyRequested: alreadyRequested,
+                    message: `Your request for ${alreadyRequested.join(', ')} is already registered.`
+                });
+            }
+        }
+
+        // Success Case: Send mail only if new entries added
+        if (newlyAdded.length > 0) {
+            try {
+                const [userInSystem] = await db.query(`SELECT id FROM "users" WHERE LOWER(TRIM(email)) = ? LIMIT 1`, [cleanEmail]);
+                await mailService.sendAccessRequestMail({
+                    email: email.trim(),
+                    customer: newlyAdded.join(', '),
+                    bu: buString,
+                    loa: loaString,
+                    isUpdate: userInSystem.length > 0
+                });
+            } catch (mailErr) {
+                console.error("⚠️ Mail error:", mailErr.message);
+            }
+        }
+
+        return res.status(200).json({
+            success: true,
+            message: "Access request submitted successfully.",
+            alreadyRequested: alreadyRequested.length > 0 ? alreadyRequested : undefined
         });
 
-    } catch (err) { 
-        console.error("❌ DB Insert Error:", err.message); 
-        return res.status(500).json({ error: "Database error: " + err.message }); 
+    } catch (err) {
+        console.error("❌ DB Final Error:", err.message);
+        return res.status(500).json({ success: false, error: "Database error: " + err.message });
     }
 };
 
