@@ -13,6 +13,9 @@ const { getDropdownData, submitAccessRequest } = require('../controllers/accessR
 const rawDrillController = require('../controllers/rawDrillController');
 const accessRequestController = require('../controllers/accessRequestController');
 
+//otp route
+const forgotPasswordController = require('../controllers/forgotPasswordController');
+
 // In teeno routes ke naam controller ke function se match hone chahiye
 router.get('/wbs-summary', dataController.getWbsSummary);
 router.get(
@@ -145,5 +148,9 @@ router.post('/access/decline', accessRequestController.declineRequest);
 // Raw Data Explorer (CJ74 / CJI5) Routes
 router.get('/raw-get-data', rawDrillController.getRawData);
 router.get('/raw-export', rawDrillController.exportRawData);
+
+// otp paths route
+router.post('/forgot-password/request', forgotPasswordController.requestOTP);
+router.post('/forgot-password/reset', forgotPasswordController.resetPassword);
 
 module.exports = router;
