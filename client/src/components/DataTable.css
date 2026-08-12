@@ -19,11 +19,115 @@
     outline: none;
 }
 
+/* Table bottom controls main container */
+.dataTables_wrapper .dt-bottom {
+    display: flex !important;
+    flex-direction: row !important; /* Force single line */
+    justify-content: space-between !important; 
+    align-items: center !important; /* Vertically center align */
+    width: 100% !important;
+    margin-top: 15px !important;
+    padding: 10px 0 !important;
+    border-top: 1px solid #f1f5f9; /* Optional: halki line table ke baad */
+}
+
+/* Left controls: Info aur Length ko side-by-side lane ke liye */
+.dt-left-controls {
+    display: flex !important;
+    flex-direction: row !important;
+    align-items: center !important;
+    gap: 20px !important; /* Info aur Dropdown ke beech gap */
+}
+
+
+/* Main Footer Container */
+.dt-footer {
+    display: flex !important;
+    justify-content: space-between !important;
+    align-items: center !important;
+    flex-wrap: nowrap !important; /* Force items to stay on one line */
+    width: 100% !important;
+    margin-top: 20px !important;
+    padding: 15px 10px !important;
+    background: #ffffff;
+}
+
+/* Left Section: Info + Length Dropdown */
+.dt-left {
+    display: flex !important;
+    align-items: center !important;
+    gap: 15px !important;
+}
+
+/* DataTables default classes override */
+.dataTables_wrapper .dataTables_info,
+.dataTables_wrapper .dataTables_length,
+.dataTables_wrapper .dataTables_paginate {
+    float: none !important;      /* Float hatao */
+    clear: none !important;      /* Clear property hatao jo niche bhejti hai */
+    display: inline-flex !important;
+    align-items: center !important;
+    padding: 0 !important;
+    margin: 0 !important;
+}
+
+/* Specific styling for 'Showing X entries' */
+.dataTables_wrapper .dataTables_info {
+    color: #64748b !important;
+    font-size: 13px !important;
+}
+
+/* Specific styling for 'Entries per page' dropdown */
+.dataTables_wrapper .dataTables_length label {
+    display: flex !important;
+    align-items: center !important;
+    gap: 8px;
+    margin: 0 !important;
+    color: #64748b !important;
+    font-size: 13px !important;
+}
+
 .dataTables_wrapper .dataTables_length select {
     border: 1px solid #cbd5e1;
     border-radius: 6px;
-    padding: 4px;
+    padding: 2px 6px !important;
+    outline: none;
 }
+
+/* Right Section: Pagination */
+.dt-right {
+    display: flex !important;
+    justify-content: flex-end !important;
+}
+
+/* Pagination container styling */
+.dataTables_wrapper .dataTables_paginate {
+    display: flex !important;
+    gap: 4px;
+}
+
+/* Entries dropdown styling (100 entries per page) */
+.dataTables_wrapper .dataTables_length {
+    margin: 0 !important;
+    padding: 0 !important;
+    display: flex !important;
+    align-items: center !important;
+    color: #64748b !important;
+    font-size: 13px !important;
+    float: none !important; /* DataTables default float hatao */
+}
+
+/* Prev/Next buttons horizontal align ensure karne ke liye */
+.dataTables_paginate .paginate_button {
+    padding: 5px 10px !important;
+    margin: 0 2px !important;
+}
+
+/* .dataTables_wrapper .dataTables_length select { */
+    /* border: 1px solid #cbd5e1; */
+    /* border-radius: 6px; */
+    /* padding: 4px; */
+/* } */
 
 .nc-input {
     text-align: left !important;

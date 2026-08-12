@@ -427,6 +427,12 @@ const SummaryView = ({ user, filters, onFilterChange, onResetFilters, setActiveT
                             onChange={onFilterChange}
                         />
                     </div>
+                    {/* 3. Right Section: Fixed Unit Text */}
+                    <div className="ml-auto flex-shrink-0 flex items-center">
+                        <span className="bg-white/40 px-3 py-1 rounded-full text-[13px] font-black uppercase border border-current/10 tracking-widest">
+                            ℹ️ All values are in KEUR.
+                        </span>
+                    </div>
                 </div>
 
                 {/* ─── DATA TABLE ─── */}

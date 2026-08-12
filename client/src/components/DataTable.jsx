@@ -137,7 +137,9 @@ const DataTable = ({ title, columns, apiUrl, filters, onKpiUpdate, showSaveButto
 
         dataTableInstance.current = $(tableRef.current).DataTable({
             serverSide: true,
-            searching: true,
+            searching: false,
+            // dom: 'rt<"dt-bottom" <"dt-left-controls"il> p>', 
+            dom: 'rt<"dt-footer" <"dt-left"il><"dt-right"p> >', 
             processing: true,
             autoWidth: false,
             scrollX: false,
@@ -272,7 +274,7 @@ const DataTable = ({ title, columns, apiUrl, filters, onKpiUpdate, showSaveButto
                     }
                 }
             },
-            dom: '<"flex justify-between mb-4"lf>rt<"flex justify-between mt-4"ip>',
+            // dom: '<"flex justify-between mb-4"lf>rt<"flex justify-between mt-4"ip>',
             drawCallback: function() {
                 const table = $(tableRef.current);
                 if (collapseView) {
