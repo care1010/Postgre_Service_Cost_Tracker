@@ -213,8 +213,21 @@ const DataTable = ({ title, columns, apiUrl, filters, onKpiUpdate, showSaveButto
                     const asbl_loa = calculateSum(rows, 'asbl_loa');
                     const ptd = calculateSum(rows, 'ptd');
                     const oc = calculateSum(rows, 'open_commitment_KEUR') || calculateSum(rows, 'open_commitment');
-                    const nc = calculateSum(rows, 'non_committed_editable') || calculateSum(rows, 'non_committed');
-                    const nc_orig = calculateSum(rows, 'non_committed_original') || calculateSum(rows, 'non_committed'); 
+                    // const nc = calculateSum(rows, 'non_committed_editable') || calculateSum(rows, 'non_committed');
+                    // const nc_orig = calculateSum(rows, 'non_committed_original') || calculateSum(rows, 'non_committed'); 
+
+                    // 2. 🔥 NEW VALUE (Edited) Logic
+                    // Review page pe 'non_committed' mein edited value aati hai
+                    // Summary page pe 'non_committed_editable' mein aati hai
+                    const sum_nc_editable = calculateSum(rows, 'non_committed_editable');
+                    const sum_nc_standard = calculateSum(rows, 'non_committed');
+                    
+                    // Agar editable column mein koi value (bhale hi 0 ho) hai, toh usey priority dein
+                    const nc = (sum_nc_editable !== 0) ? sum_nc_editable : sum_nc_standard;
+
+                    // 3. 🔥 OLD VALUE Logic (Strict Check)
+                    // Review page pe 'non_committed_original' hota hai
+                    const nc_orig = calculateSum(rows, 'non_committed_original');
                     const eac = ptd + oc + nc;
                     const varTotal = asbl - eac;
 

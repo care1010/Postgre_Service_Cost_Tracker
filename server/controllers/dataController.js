@@ -1000,74 +1000,58 @@ exports.updateNonCommitted = async (req, res) => {
     const { updates, createdBy } = req.body;
     try {
         const monthYear = new Date().toLocaleDateString('en-US', { month: 'short', year: 'numeric' }).replace(' ', '-');
-        let totalUpdated = 0;
 
         for (let item of updates) {
             const { loa_name, categories, value, wbs_type } = item;
             const numVal = parseFloat(value) || 0;
 
-            // Determine Dynamic Column (Project, AMC, or Warranty)
+            // Mapping Column identification
             let ncCol = 'non_committed_editable_project';
             const wTypeStr = String(wbs_type || '').toLowerCase();
             if (wTypeStr.includes('amc')) ncCol = 'non_committed_editable_amc';
             if (wTypeStr.includes('warranty')) ncCol = 'non_committed_editable_warranty';
 
-            // 1. Fetch details from summary
             const [existing] = await db.query(
-                `SELECT non_committed_editable, customer, bu, loa_id, active_inactive 
-                 FROM summary 
-                 WHERE TRIM(LOWER(loa_name)) = TRIM(LOWER(?)) AND TRIM(LOWER(categories)) = TRIM(LOWER(?))`,
+                `SELECT non_committed_editable, bu, customer, loa_id, active_inactive 
+                 FROM summary WHERE TRIM(LOWER(loa_name)) = TRIM(LOWER(?)) AND TRIM(LOWER(categories)) = TRIM(LOWER(?))`,
                 [loa_name, categories]
             );
 
             if (!existing || existing.length === 0) continue;
-
             const oldValue = existing[0].non_committed_editable || 0;
-            const { customer, bu, loa_id, active_inactive } = existing[0];
 
-            // 2. Update Summary Table (Updates both main & dynamic columns!)
+            // 🔥 Update both: Master editable column and Specific bucket column
+            const updateSql = `
+                UPDATE summary SET 
+                non_committed_editable = ?, 
+                ${ncCol} = ?, 
+                updated_by = ? 
+                WHERE TRIM(LOWER(loa_name)) = TRIM(LOWER(?)) AND TRIM(LOWER(categories)) = TRIM(LOWER(?))`;
+
+            await db.query(updateSql, [numVal, numVal, createdBy, loa_name, categories]);
+            
+            // Mirror same to dashboard table
+            await db.query(updateSql.replace('summary', 'final_dashboard_table'), [numVal, numVal, createdBy, loa_name, categories]);
+
+            // Log activity
             await db.query(
-                `UPDATE summary 
-                 SET non_committed_editable = ?, ${ncCol} = ?, updated_by = ? 
-                 WHERE TRIM(LOWER(loa_name)) = TRIM(LOWER(?)) AND TRIM(LOWER(categories)) = TRIM(LOWER(?))`,
-                [numVal, numVal, createdBy, loa_name, categories]
-            );
-
-            // 3. Update Dashboard Table (Updates both main & dynamic columns!)
-            const [dashRes] = await db.query(
-                `UPDATE final_dashboard_table 
-                 SET non_committed_editable = ?, ${ncCol} = ?, updated_by = ? 
-                 WHERE TRIM(LOWER(loa_name)) = TRIM(LOWER(?)) AND TRIM(LOWER(categories)) = TRIM(LOWER(?))`,
-                [numVal, numVal, createdBy, loa_name, categories]
-            );
-
-            // Count successfully updated categories
-            totalUpdated++;
-
-            // 4. Activity Log
-            await db.query(
-                `INSERT INTO user_activity_logs (user_email, bu, customer, loa_name, loa_id, categories, old_value, new_value, active_inactive, month_year, wbs_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                [createdBy, bu, customer, loa_name, loa_id, categories, oldValue, numVal, active_inactive, monthYear, wbs_type]
+                `INSERT INTO user_activity_logs (user_email, bu, customer, loa_name, loa_id, categories, old_value, new_value, active_inactive, month_year, wbs_type, is_finalized) 
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, false)`,
+                [createdBy, existing[0].bu, existing[0].customer, loa_name, existing[0].loa_id, categories, oldValue, numVal, existing[0].active_inactive, monthYear, wbs_type]
             );
         }
 
-        // 5. Recalculate EAC & Variance
+        // Global Recalculation for UI
         await db.query(`
             UPDATE final_dashboard_table 
             SET eac = (ptd + open_commitment_KEUR + non_committed_editable),
                 eac_vs_asbl = (asbl - (ptd + open_commitment_KEUR + non_committed_editable))
-            WHERE ABS(non_committed - non_committed_editable) > 0.01 OR non_committed_editable <> 0
+            WHERE non_committed_editable <> 0 OR ABS(non_committed - non_committed_editable) > 0.01
         `);
 
-        // triggerAutoSync('non_committed_saved');
-
-        filterCache.flushAll(); // Clear Cache
-        res.status(200).json({ message: `Successfully saved changes for ${totalUpdated} categories!`, updatedCount: totalUpdated });
-
-    } catch (error) {
-        console.error("updateNonCommitted Error:", error);
-        res.status(500).json({ error: "Server Error: " + error.message });
-    }
+        filterCache.flushAll(); 
+        res.status(200).json({ message: "Changes saved to draft!" });
+    } catch (error) { res.status(500).json({ error: error.message }); }
 };
 
 exports.getUserActivityLogs = async (req, res) => {
@@ -1872,19 +1856,76 @@ exports.getCustomerBuLoaViewTable = async (req, res) => {
     } catch (error) { res.status(500).json({ error: error.message }); }
 };
 
+// exports.getReviewChanges = async (req, res) => {
+
+//     // 🔥 Define monthYear at the top
+//     const monthYear = new Date().toLocaleDateString('en-US', { month: 'short', year: 'numeric' }).replace(' ', '-');
+//     try {
+//         const { draw, start, length, type, allowedCustomers } = req.query;
+//         const startIdx = parseInt(start) || 0;
+//         const limitIdx = parseInt(length) || 100;
+
+//         let conditions = [
+//             "categories != 'Revenue'",
+//             "ABS(COALESCE(non_committed, 0) - COALESCE(non_committed_editable, 0)) > 0.01"
+//         ];
+//         let params = [];
+        
+//         // Apply RLS & Shared Filters
+//         applyRLS(type, allowedCustomers, conditions, params);
+//         buildCommonFilters(req.query, conditions, params);
+
+//         const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+
+//         const matrixQuery = `
+//             SELECT 
+//                 bu, customer, loa_id, loa_name, cost_revenue, categories,
+//                 MAX(wbs_type) as wbs_type, -- 🔥 NAYA: wbs_type add kiya taaki mapping sahi ho
+//                 MAX(asbl) as asbl, MAX(asbl_loa) as asbl_loa, SUM(ptd) as ptd, 
+//                 MAX(open_commitment_KEUR) as open_commitment, 
+//                 MAX(non_committed_editable) as non_committed, 
+//                 MAX(non_committed) as non_committed_original,
+//                 MAX(updated_by) as updated_by,
+//                 TO_CHAR(MAX(updated_at), 'DD-Mon-YYYY HH24:MI') as updated_at,
+//                 (SUM(ptd) + MAX(open_commitment_KEUR) + MAX(non_committed_editable)) as eac,
+//                 (MAX(asbl) - (SUM(ptd) + MAX(open_commitment_KEUR) + MAX(non_committed_editable))) as eac_vs_asbl
+//             FROM final_dashboard_table
+//             ${whereClause}
+//             GROUP BY bu, customer, loa_id, loa_name, cost_revenue, categories
+//             -- 🔥 Filter condition updated:
+//             HAVING (
+//                 ABS(COALESCE(MAX(non_committed), 0) - COALESCE(MAX(non_committed_editable), 0)) > 0.01
+//                 OR 
+//                 EXISTS (
+//                     SELECT 1 FROM user_activity_logs 
+//                     WHERE loa_id = final_dashboard_table.loa_id 
+//                     AND categories = final_dashboard_table.categories 
+//                     AND month_year = ? -- Current Month
+//                 )
+//             )
+//             ORDER BY loa_name ASC, cost_revenue ASC
+//         `;
+
+//         const [countRes] = await db.query(`SELECT COUNT(*) as total FROM (${matrixQuery}) as temp`, params);
+//         const [dataRows] = await db.query(`${matrixQuery} LIMIT ?, ?`, [...params, startIdx, limitIdx]);
+
+//         res.status(200).json({
+//             draw: parseInt(draw) || 0,
+//             recordsTotal: parseInt(countRes[0]?.total || 0),
+//             recordsFiltered: parseInt(countRes[0]?.total || 0),
+//             data: dataRows
+//         });
+//     } catch (error) { res.status(500).json({ error: error.message }); }
+// };
+
 exports.getReviewChanges = async (req, res) => {
+    const monthYear = new Date().toLocaleDateString('en-US', { month: 'short', year: 'numeric' }).replace(' ', '-');
+    
     try {
         const { draw, start, length, type, allowedCustomers } = req.query;
-        const startIdx = parseInt(start) || 0;
-        const limitIdx = parseInt(length) || 100;
-
-        let conditions = [
-            "categories != 'Revenue'",
-            "ABS(COALESCE(non_committed, 0) - COALESCE(non_committed_editable, 0)) > 0.01"
-        ];
+        let conditions = ["categories != 'Revenue'"];
         let params = [];
         
-        // Apply RLS & Shared Filters
         applyRLS(type, allowedCustomers, conditions, params);
         buildCommonFilters(req.query, conditions, params);
 
@@ -1893,6 +1934,7 @@ exports.getReviewChanges = async (req, res) => {
         const matrixQuery = `
             SELECT 
                 bu, customer, loa_id, loa_name, cost_revenue, categories,
+                MAX(wbs_type) as wbs_type,
                 MAX(asbl) as asbl, MAX(asbl_loa) as asbl_loa, SUM(ptd) as ptd, 
                 MAX(open_commitment_KEUR) as open_commitment, 
                 MAX(non_committed_editable) as non_committed, 
@@ -1901,14 +1943,32 @@ exports.getReviewChanges = async (req, res) => {
                 TO_CHAR(MAX(updated_at), 'DD-Mon-YYYY HH24:MI') as updated_at,
                 (SUM(ptd) + MAX(open_commitment_KEUR) + MAX(non_committed_editable)) as eac,
                 (MAX(asbl) - (SUM(ptd) + MAX(open_commitment_KEUR) + MAX(non_committed_editable))) as eac_vs_asbl
-            FROM final_dashboard_table
+            FROM final_dashboard_table fdt
             ${whereClause}
             GROUP BY bu, customer, loa_id, loa_name, cost_revenue, categories
-            ORDER BY loa_name ASC, cost_revenue ASC
+            
+            -- 🔥 ULTRA STRICT FILTER: 
+            HAVING (
+                -- 1. Check Significant Difference (Ignore tiny float/null mismatches)
+                (
+                    MAX(non_committed_editable) IS NOT NULL 
+                    AND ABS(COALESCE(MAX(non_committed), 0) - COALESCE(MAX(non_committed_editable), 0)) > 0.01
+                )
+                OR 
+                -- 2. Strictly check if an Activity Log exists for this EXACT Category + LOA
+                EXISTS (
+                    SELECT 1 FROM user_activity_logs ual 
+                    WHERE ual.loa_id = fdt.loa_id 
+                    AND ual.categories = fdt.categories 
+                    AND ual.month_year = ? AND ual.is_finalized = false -- 🔥 Sirf pending logs
+                )
+            )
+            ORDER BY loa_name ASC, categories ASC
         `;
 
-        const [countRes] = await db.query(`SELECT COUNT(*) as total FROM (${matrixQuery}) as temp`, params);
-        const [dataRows] = await db.query(`${matrixQuery} LIMIT ?, ?`, [...params, startIdx, limitIdx]);
+        const countParams = [...params, monthYear];
+        const [countRes] = await db.query(`SELECT COUNT(*) as total FROM (${matrixQuery}) as temp`, countParams);
+        const [dataRows] = await db.query(`${matrixQuery} LIMIT ?, ?`, [...countParams, parseInt(start) || 0, parseInt(length) || 100]);
 
         res.status(200).json({
             draw: parseInt(draw) || 0,
@@ -1916,11 +1976,28 @@ exports.getReviewChanges = async (req, res) => {
             recordsFiltered: parseInt(countRes[0]?.total || 0),
             data: dataRows
         });
-    } catch (error) { res.status(500).json({ error: error.message }); }
+
+    } catch (error) {
+        console.error("getReviewChanges Error:", error.message);
+        res.status(500).json({ error: error.message });
+    }
 };
 
 exports.finalizeChanges = async (req, res) => {
     try {
+
+        const monthYear = new Date().toLocaleDateString('en-US', { month: 'short', year: 'numeric' }).replace(' ', '-');
+
+        // 🔥 Logic Update: Production table ko un sabhi rows ke liye update karein
+        // jo current mahine ke activity logs mein maujood hain
+        const updateCondition = `
+            WHERE EXISTS (
+                SELECT 1 FROM user_activity_logs ual 
+                WHERE ual.loa_id = summary.loa_id 
+                AND ual.categories = summary.categories 
+                AND ual.month_year = '${monthYear}'
+            ) OR ABS(COALESCE(non_committed, 0) - COALESCE(non_committed_editable, 0)) > 0.01
+        `;
         // 1. Move editable -> original in Summary Table
         await db.query(`
             UPDATE summary 
@@ -1941,6 +2018,13 @@ exports.finalizeChanges = async (req, res) => {
             WHERE ABS(COALESCE(non_committed, 0) - COALESCE(non_committed_editable, 0)) > 0.01
         `);
 
+        // 3. 🔥 CRITICAL: Mark logs as Finalized taaki Review page clear ho jaye
+        await db.query(`
+            UPDATE user_activity_logs 
+            SET is_finalized = true 
+            WHERE month_year = ? AND is_finalized = false
+        `, [monthYear]);
+
         // 3. Recalculate EAC and Variance globally
         await db.query(`
             UPDATE final_dashboard_table 
@@ -1959,19 +2043,62 @@ exports.finalizeChanges = async (req, res) => {
     }
 };
 
+// exports.checkPendingChanges = async (req, res) => {
+
+//     // 🔥 Sabse pehle variable define karein
+//     const monthYear = new Date().toLocaleDateString('en-US', { month: 'short', year: 'numeric' }).replace(' ', '-');
+//     try {
+//         const [rows] = await db.query(`
+//             SELECT COUNT(*) as count 
+//             FROM final_dashboard_table 
+//             WHERE categories != 'Revenue' 
+//             AND ABS(COALESCE(non_committed, 0) - COALESCE(non_committed_editable, 0)) > 0.01
+//         OR 
+//                 EXISTS (
+//                     SELECT 1 FROM user_activity_logs ual 
+//                     WHERE ual.loa_id = fdt.loa_id 
+//                     AND ual.categories = fdt.categories 
+//                     AND ual.month_year = ?
+//                 )
+//             )
+//         `, [monthYear]);
+        
+//         const count = parseInt(rows[0]?.count || rows[0]?.total || 0);
+//         res.status(200).json({ count });
+//     } catch (error) {
+//         console.error("checkPendingChanges Error:", error);
+//         res.status(500).json({ error: error.message });
+//     }
+// };
+
 exports.checkPendingChanges = async (req, res) => {
+    const monthYear = new Date().toLocaleDateString('en-US', { month: 'short', year: 'numeric' }).replace(' ', '-');
+    
     try {
+        // 🔥 STRICT CHECK: Count only the specific categories that were touched
         const [rows] = await db.query(`
             SELECT COUNT(*) as count 
-            FROM final_dashboard_table 
-            WHERE categories != 'Revenue' 
-            AND ABS(COALESCE(non_committed, 0) - COALESCE(non_committed_editable, 0)) > 0.01
-        `);
+            FROM (
+                SELECT loa_id, categories
+                FROM final_dashboard_table fdt
+                WHERE categories != 'Revenue'
+                GROUP BY loa_id, categories
+                HAVING (
+                    ABS(COALESCE(MAX(non_committed), 0) - COALESCE(MAX(non_committed_editable), 0)) > 0.01
+                    OR 
+                    EXISTS (
+                        SELECT 1 FROM user_activity_logs ual 
+                        WHERE ual.loa_id = fdt.loa_id 
+                        AND ual.categories = fdt.categories 
+                        AND ual.month_year = ? AND ual.is_finalized = false -- 🔥 Sirf non-finalized dekho
+                    )
+                )
+            ) as touched_rows
+        `, [monthYear]);
         
-        const count = parseInt(rows[0]?.count || rows[0]?.total || 0);
+        const count = parseInt(rows[0]?.count || 0);
         res.status(200).json({ count });
     } catch (error) {
-        console.error("checkPendingChanges Error:", error);
         res.status(500).json({ error: error.message });
     }
 };

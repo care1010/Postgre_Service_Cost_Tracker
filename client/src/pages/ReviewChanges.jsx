@@ -68,18 +68,19 @@ const ReviewChanges = ({ user, filters, onFilterChange, onResetFilters, onBack }
             pendingUpdates.push({
                 loa_name: $(this).data('loa'),
                 categories: $(this).data('cat'),
+                wbs_type: $(this).data('wbstype'), // 🔥 NAYA: wbs_type collect kiya
                 value: $(this).val()
             });
         });
 
         // 🔥 NAYA: Improved Professional Popup
         const result = await Swal.fire({
-            title: "Finalize & Sync Database?",
-            text: "This action will move all draft changes to the production tables and trigger a background sync. Are you sure?",
+            title: "Save?",
+            text: "These changes will be saved on Summary Page permanently. Are you sure?",
             icon: "warning",
             showCancelButton: true,
-            confirmButtonText: "Yes, Finalize All",
-            cancelButtonText: "Review More",
+            confirmButtonText: "Yes, Save All",
+            cancelButtonText: "Cancel",
             confirmButtonColor: "#2563eb",
             cancelButtonColor: "#64748b",
             reverseButtons: true
@@ -87,8 +88,8 @@ const ReviewChanges = ({ user, filters, onFilterChange, onResetFilters, onBack }
 
         if (!result.isConfirmed) return;
         Swal.fire({ 
-            title: "Processing Finalization...", 
-            text: "Moving data to production and starting sync engine.",
+            title: "Processing...", 
+            text: "Submitting changes.",
             allowOutsideClick: false,
             didOpen: () => Swal.showLoading() 
         });
@@ -101,7 +102,7 @@ const ReviewChanges = ({ user, filters, onFilterChange, onResetFilters, onBack }
                 });
             }
             const res = await axios.post(`${process.env.REACT_APP_API_URL}/api/data/finalize-changes`);
-            await Swal.fire("Success", "All changes have been finalized and sync engine started!", "success");
+            await Swal.fire("Success", "All changes have been saved!", "success");
             onBack();
         } catch (err) { 
             Swal.fire("Error", "Submission failed. Please try again.", "error"); 
@@ -137,6 +138,7 @@ const ReviewChanges = ({ user, filters, onFilterChange, onResetFilters, onBack }
                             class="nc-input is-changed"
                             data-loa="${row.loa_name}" 
                             data-cat="${row.categories}"
+                            data-wbstype="${row.wbs_type}" <!-- 🔥 NAYA: wbs_type add kiya -->
                             style="width: 100px; padding: 4px 8px; text-align: right; border: 2px solid #60a5fa; border-radius: 8px; background: #eff6ff; font-weight: bold; color: #1e40af; outline: none;"
                         />
                     </div>`;
