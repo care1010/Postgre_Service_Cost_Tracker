@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Routes, Route, useLocation } from 'react-router-dom'; 
 import Sidebar from './components/Sidebar';
 import SummaryView from './pages/SummaryView';
@@ -33,8 +33,50 @@ const DEFAULT_FILTERS = {
 
 function App() {
   const [user, setUser] = useState(null);
-  const [activeTab, setActiveTab] = useState('summary');
+  // const [activeTab, setActiveTab] = useState('summary');
+  const [activeTab, setActiveTab] = useState(localStorage.getItem('activeTab') || 'summary');
   const location = useLocation(); 
+
+  // 🔥 Jab bhi activeTab badle, usey browser memory mein save kar do
+useEffect(() => {
+  localStorage.setItem('activeTab', activeTab);
+}, [activeTab]);
+
+  // --- 1. Sabse pehle Logout logic ---
+  const handleLogout = useCallback(() => {
+    localStorage.removeItem('user');
+    localStorage.removeItem('loginTime'); // Cleanup timestamp
+    localStorage.removeItem('activeTab'); // 🔥 Logout par saved tab ko delete karo
+    setUser(null);
+    setActiveTab('summary');
+    setSharedFilters(DEFAULT_FILTERS);
+  }, []);
+
+  // --- 2. Phir Expiry Checker (useCallback handleLogout ke baad aana chahiye) ---
+  const checkSessionExpiry = useCallback(() => {
+      const loginTime = localStorage.getItem('loginTime');
+      if (loginTime) {
+        // const eightHoursInMs = 30 * 1000;  for testing 30 seconds
+        const eightHoursInMs = 8 * 60 * 60 * 1000; 
+        const currentTime = Date.now();
+        
+        if (currentTime - parseInt(loginTime) > eightHoursInMs) {
+          handleLogout();
+          console.log("Session expired silently after 8 hours.");
+        }
+      }
+  }, [handleLogout]);
+
+  // --- 3. Ab useEffects jo upar wale functions use karte hain ---
+  useEffect(() => {
+      if (user) {
+        checkSessionExpiry();
+        const interval = setInterval(() => {
+          checkSessionExpiry();
+        }, 5000); 
+        return () => clearInterval(interval);
+      }
+  }, [user, checkSessionExpiry]);
 
   // ============================================================
   // 🔥 SHARED FILTERS STATE — lifted up from SummaryView & Dashboard
@@ -66,12 +108,12 @@ function App() {
     }
   }, [activeTab, user]);
 
-  const handleLogout = () => {
-    localStorage.removeItem('user');
-    setUser(null);
-    setActiveTab('summary');
-    setSharedFilters(DEFAULT_FILTERS); // logout pe filters bhi reset
-  };
+  // const handleLogout = () => {
+  //   localStorage.removeItem('user');
+  //   setUser(null);
+  //   setActiveTab('summary');
+  //   setSharedFilters(DEFAULT_FILTERS); // logout pe filters bhi reset
+  // };
 
   if (!user) {
     return <Login onLoginSuccess={(userData) => setUser(userData)} />;

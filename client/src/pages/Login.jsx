@@ -41,6 +41,10 @@ const Login = ({ onLoginSuccess }) => {
 
             const storage = rememberMe ? localStorage : sessionStorage;
 
+            // 🔥 NAYA LOGIC: Login ka timestamp save karo
+            const loginTimestamp = Date.now();
+            localStorage.setItem('loginTime', loginTimestamp.toString());
+
             storage.setItem('user', JSON.stringify(res.data.user));
 
             onLoginSuccess(res.data.user);
