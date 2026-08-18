@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import axios from 'axios';
 import * as XLSX from "xlsx";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LabelList, ComposedChart, Line } from 'recharts';
@@ -8,6 +8,7 @@ import {
     HiChevronRight,
     HiOutlineUpload,
     HiChevronDown,
+    HiSearch
 } from "react-icons/hi";
 
 // ─────────────────────────────────────────────────────────────
@@ -125,6 +126,11 @@ const Dashboard = ({ user, filters, onFilterChange, onResetFilters }) => {
     const [trendLoas, setTrendLoas] = useState([]);
     const [selectedTrendLoa, setSelectedTrendLoa] = useState('');
 
+    // 🔥 NAYE STATES: Searchable Dropdown ke liye
+    const [isTrendDropdownOpen, setIsTrendDropdownOpen] = useState(false);
+    const [trendSearchTerm, setTrendSearchTerm] = useState('');
+    const trendDropdownRef = useRef(null);
+
     const formatNum = (val) => Number(val || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
     // ─── FETCH FILTER OPTIONS (cascading — same filters from App.js) ───
@@ -172,17 +178,18 @@ const Dashboard = ({ user, filters, onFilterChange, onResetFilters }) => {
     useEffect(() => {
         const fetchTrendData = async () => {
             try {
-                const params = buildQueryParams(filters, {
-                    loa_name: selectedTrendLoa
-                });
-                const res = await axios.get(
-                    `${process.env.REACT_APP_API_URL}/api/data/non-committed-trend?${params.toString()}`
-                );
+                const params = buildQueryParams(filters, { loa_name: selectedTrendLoa });
+                const res = await axios.get(`${process.env.REACT_APP_API_URL}/api/data/non-committed-trend?${params.toString()}`);
                 setTrendData(res.data);
             } catch (err) { console.error(err); }
         };
         fetchTrendData();
     }, [selectedTrendLoa, filters]);
+
+    // Filter Logic for Searchable Dropdown
+    const filteredTrendOptions = trendLoas.filter(item => 
+        item.loa_name.toLowerCase().includes(trendSearchTerm.toLowerCase())
+    );
 
     // ─── MAIN DATA FETCH ───
     useEffect(() => {
@@ -443,30 +450,86 @@ const Dashboard = ({ user, filters, onFilterChange, onResetFilters }) => {
                 </div>
 
                 {/* ─── TREND GRAPH ─── */}
+                {/* ─── TREND GRAPH SECTION ─── */}
                 <div className="bg-white rounded-[1.5rem] shadow-lg p-6 relative border border-slate-100">
                     <div className="flex flex-col md:flex-row md:justify-between md:items-center gap-4 mb-6">
                         <h2 className="text-2xl font-black font-semibold text-slate-800 uppercase tracking-tight">Non Committed Trend</h2>
-                        <select value={selectedTrendLoa} onChange={(e) => setSelectedTrendLoa(e.target.value)} className="border border-slate-300 bg-slate-50 text-slate-700 font-bold rounded-xl px-4 py-2 outline-none">
-                            <option value="">ALL LOAs</option>
-                            {trendLoas.map((item) => (
-                                <option key={item.loa_name} value={item.loa_name}>{item.loa_name.toUpperCase()}</option>
-                            ))}
-                        </select>
+                        
+                        {/* 🔥 NAYA: Searchable Select UI */}
+                        <div className="relative w-full md:w-80" ref={trendDropdownRef}>
+                            <div 
+                                onClick={() => setIsTrendDropdownOpen(!isTrendDropdownOpen)}
+                                className="w-full border-2 border-slate-200 bg-slate-50 text-slate-700 font-bold rounded-xl px-4 py-2.5 flex justify-between items-center cursor-pointer hover:border-blue-400 transition-all shadow-sm"
+                            >
+                                <span className="truncate">{selectedTrendLoa ? selectedTrendLoa.toUpperCase() : 'ALL LOAs'}</span>
+                                <HiChevronDown className={`transition-transform duration-200 ${isTrendDropdownOpen ? 'rotate-180' : ''}`} />
+                            </div>
+
+                            {isTrendDropdownOpen && (
+                                <div className="absolute z-[100] w-full mt-2 bg-white border border-slate-200 rounded-2xl shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200">
+                                    <div className="p-3 border-b border-slate-100 bg-slate-50 flex items-center gap-2">
+                                        <HiSearch className="text-slate-400" />
+                                        <input
+                                            type="text"
+                                            autoFocus
+                                            placeholder="Search LOA Name..."
+                                            value={trendSearchTerm}
+                                            onChange={(e) => setTrendSearchTerm(e.target.value)}
+                                            className="w-full bg-transparent text-sm outline-none font-medium"
+                                        />
+                                    </div>
+                                    <div className="max-h-60 overflow-y-auto custom-scrollbar">
+                                        <div 
+                                            onClick={() => { setSelectedTrendLoa(''); setIsTrendDropdownOpen(false); setTrendSearchTerm(''); }}
+                                            className="px-4 py-3 text-sm font-black text-blue-600 hover:bg-blue-50 cursor-pointer border-b border-slate-50"
+                                        >
+                                            ALL LOAs
+                                        </div>
+                                        {filteredTrendOptions.length > 0 ? (
+                                            filteredTrendOptions.map((item, idx) => (
+                                                <div
+                                                    key={idx}
+                                                    onClick={() => {
+                                                        setSelectedTrendLoa(item.loa_name);
+                                                        setIsTrendDropdownOpen(false);
+                                                        setTrendSearchTerm('');
+                                                    }}
+                                                    className="px-4 py-3 text-sm text-slate-700 hover:bg-blue-50 hover:text-blue-600 cursor-pointer transition-colors border-b border-slate-50 last:border-0"
+                                                >
+                                                    {item.loa_name.toUpperCase()}
+                                                </div>
+                                            ))
+                                        ) : (
+                                            <div className="p-4 text-xs text-slate-400 text-center italic">No LOAs found</div>
+                                        )}
+                                    </div>
+                                </div>
+                            )}
+                        </div>
                     </div>
 
-                    <div className="grid md:grid-cols-3 gap-4 mb-6">
-                        <div className="bg-blue-50 border border-blue-100 rounded-2xl p-5">
+                    {/* 🔥 UPDATED KPI CARDS: 4 columns now */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+                        <div className="bg-blue-50 border border-blue-100 rounded-2xl p-5 shadow-sm">
                             <div className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Selected LOA</div>
-                            <div className="text-lg font-black text-blue-700 mt-1 truncate">{selectedTrendLoa ? selectedTrendLoa.toUpperCase() : 'ALL'}</div>
+                            <div className="text-lg font-black text-blue-700 mt-1 truncate" title={selectedTrendLoa}>{selectedTrendLoa ? selectedTrendLoa.toUpperCase() : 'ALL'}</div>
                         </div>
-                        <div className="bg-green-50 border border-green-100 rounded-2xl p-5">
-                            <div className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Latest Value</div>
+                        
+                        {/* 🔥 NAYA CARD: Total Active LOAs in context */}
+                        <div className="bg-orange-50 border border-orange-100 rounded-2xl p-5 shadow-sm">
+                            <div className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Total Active LOAs</div>
+                            <div className="text-xl font-black text-orange-700 mt-1">{trendLoas.length}</div>
+                        </div>
+
+                        {/* <div className="bg-green-50 border border-green-100 rounded-2xl p-5 shadow-sm">
+                            <div className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Latest Value (K€)</div>
                             <div className="text-xl font-black text-green-700 mt-1">{trendData.length > 0 ? formatNum(trendData[trendData.length - 1]?.total_non_committed) : '0.00'}</div>
                         </div>
-                        <div className="bg-purple-50 border border-purple-100 rounded-2xl p-5">
+                        
+                        <div className="bg-purple-50 border border-purple-100 rounded-2xl p-5 shadow-sm">
                             <div className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Available Months</div>
                             <div className="text-xl font-black text-purple-700 mt-1">{trendData.length}</div>
-                        </div>
+                        </div> */}
                     </div>
 
                     <div className="w-full h-[400px]">
@@ -475,10 +538,34 @@ const Dashboard = ({ user, filters, onFilterChange, onResetFilters }) => {
                                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                                 <XAxis dataKey="month_year" axisLine={false} tickLine={false} tick={{ fill: '#1e293b', fontSize: 12, fontWeight: 700 }} dy={10} />
                                 <YAxis axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontSize: 11 }} />
-                                <Tooltip cursor={{ fill: '#f8fafc' }} contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 25px -5px rgba(0,0,0,0.1)' }} formatter={(value) => [formatNum(value), "NON COMMITTED"]} />
+                                
+                                {/* 🔥 FIXED TOOLTIP: Only 1 entry shown */}
+                                <Tooltip 
+                                    cursor={{ fill: '#f8fafc' }} 
+                                    contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 25px -5px rgba(0,0,0,0.1)' }} 
+                                    formatter={(value, name) => {
+                                        // Hum sirf Bar wali entry dikhayenge, Line wali null kar denge
+                                        if (name === "total_non_committed") return [formatNum(value), "NON COMMITTED"];
+                                        return null;
+                                    }}
+                                />
+                                
                                 <Legend verticalAlign="top" align="right" iconType="circle" formatter={() => <span style={{ color: '#475569', fontWeight: '800', textTransform: 'uppercase', fontSize: '12px' }}>NON COMMITTED</span>} />
-                                <Bar dataKey="total_non_committed" fill="#3b82f6" radius={[6, 6, 0, 0]} barSize={80}><LabelList dataKey="total_non_committed" position="top" formatter={(v) => formatNum(v)} style={{ fontSize: '11px', fontWeight: '800', fill: '#1e293b' }} offset={10}/></Bar>
-                                <Line type="monotone" dataKey="total_non_committed" stroke="#0f172a" strokeWidth={3} dot={{ r: 5, fill: '#0f172a' }} legendType="none" />
+                                
+                                <Bar dataKey="total_non_committed" fill="#3b82f6" radius={[6, 6, 0, 0]} barSize={80}>
+                                    <LabelList dataKey="total_non_committed" position="top" formatter={(v) => formatNum(v)} style={{ fontSize: '11px', fontWeight: '800', fill: '#1e293b' }} offset={10}/>
+                                </Bar>
+                                
+                                {/* 🔥 FIXED LINE: Tooltip hide karne ke liye tooltipType manual fix */}
+                                <Line 
+                                    type="monotone" 
+                                    dataKey="total_non_committed" 
+                                    stroke="#0f172a" 
+                                    strokeWidth={3} 
+                                    dot={{ r: 5, fill: '#0f172a' }} 
+                                    legendType="none" 
+                                    tooltipType="none" // Standard Recharts property to hide from tooltip
+                                />
                             </ComposedChart>
                         </ResponsiveContainer>
                     </div>

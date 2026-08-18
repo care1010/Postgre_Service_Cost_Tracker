@@ -1584,56 +1584,142 @@ exports.getLoaAnalytics = async (req, res) => {
     } catch (error) { res.status(500).json({ error: error.message }); }
 };
 
+// exports.getNonCommittedTrend = async (req, res) => {
+//     try {
+//         let { loa_name = '', active_inactive = '', wbs_type = '', category_type = '' } = req.query;
+
+//         // 🔥 BACKEND FAILSAFE: Agar frontend galti se Array bhej de, toh uski pehli value uthao (Prevents Postgres Crash)
+//         if (Array.isArray(loa_name)) loa_name = loa_name[0];
+//         if (Array.isArray(active_inactive)) active_inactive = active_inactive[0];
+
+//         const currentMonthYear = new Date().toLocaleString('en-US', { month: 'short', year: 'numeric' }).replace(' ', '-');
+
+//         // 1. Array parsing for WBS and Category
+//         const wTArr = wbs_type ? String(wbs_type).split(',').map(v => v.trim().toLowerCase()).filter(Boolean) : [];
+//         const catArr = category_type ? String(category_type).split(',').map(v => v.trim().toLowerCase()).filter(Boolean) : [];
+
+//         const [rows] = await db.query(
+//             `
+//             SELECT
+//                 latest.month_year,
+//                 SUM(latest.new_value) AS total_non_committed
+//             FROM
+//             (
+//                 SELECT l1.*
+//                 FROM user_activity_logs l1
+//                 INNER JOIN
+//                 (
+//                     SELECT loa_name, categories, month_year, MAX(id) AS latest_id
+//                     FROM user_activity_logs
+//                     GROUP BY loa_name, categories, month_year
+//                 ) l2 ON l1.id = l2.latest_id
+//             ) latest
+//             WHERE (? = '' OR latest.loa_name = ?)
+//               AND (? = '' OR latest.active_inactive = ?)
+//               AND latest.month_year <> ?
+//             GROUP BY latest.month_year
+//             ORDER BY TO_DATE(CONCAT('01-', latest.month_year), 'DD-Mon-YYYY') DESC
+//             LIMIT 6
+//             `,
+//             [loa_name, loa_name, active_inactive, active_inactive, currentMonthYear]
+//         );
+//         res.json(rows);
+//     } catch (error) {
+//         res.status(500).json({ error: error.message });
+//     }
+// };
+
 exports.getNonCommittedTrend = async (req, res) => {
     try {
-        let { loa_name = '', active_inactive = '', wbs_type = '', category_type = '' } = req.query;
-
-        // 🔥 BACKEND FAILSAFE: Agar frontend galti se Array bhej de, toh uski pehli value uthao (Prevents Postgres Crash)
+        let { loa_name = '', wbs_type = '' } = req.query;
         if (Array.isArray(loa_name)) loa_name = loa_name[0];
-        if (Array.isArray(active_inactive)) active_inactive = active_inactive[0];
 
-        const currentMonthYear = new Date().toLocaleString('en-US', { month: 'short', year: 'numeric' }).replace(' ', '-');
+        // 🔥 IMPROVED: Handle multiple selections and columns
+        const wTArr = wbs_type ? String(wbs_type).split(',').map(v => v.trim().toLowerCase()) : [];
+        
+        let sumField = 'non_committed';
+        // Agar sirf ek specific type selected hai toh usi ka trend dikhao
+        if (wTArr.length === 1 && !wTArr.includes('all')) {
+            if (wTArr.includes('amc')) sumField = 'non_committed_amc';
+            else if (wTArr.includes('project')) sumField = 'non_committed_project';
+            else if (wTArr.includes('warranty/other')) sumField = 'non_committed_warranty';
+        }
 
-        // 1. Array parsing for WBS and Category
-        const wTArr = wbs_type ? String(wbs_type).split(',').map(v => v.trim().toLowerCase()).filter(Boolean) : [];
-        const catArr = category_type ? String(category_type).split(',').map(v => v.trim().toLowerCase()).filter(Boolean) : [];
+        const now = new Date();
+        const curMonthName = now.toLocaleString('en-US', { month: 'short' });
+        const curYear = now.getFullYear();
+        const curMonthYearLog = now.toLocaleDateString('en-US', { month: 'short', year: 'numeric' }).replace(' ', '-');
 
-        const [rows] = await db.query(
-            `
-            SELECT
-                latest.month_year,
-                SUM(latest.new_value) AS total_non_committed
-            FROM
-            (
-                SELECT l1.*
-                FROM user_activity_logs l1
-                INNER JOIN
-                (
-                    SELECT loa_name, categories, month_year, MAX(id) AS latest_id
-                    FROM user_activity_logs
-                    GROUP BY loa_name, categories, month_year
-                ) l2 ON l1.id = l2.latest_id
-            ) latest
-            WHERE (? = '' OR latest.loa_name = ?)
-              AND (? = '' OR latest.active_inactive = ?)
-              AND latest.month_year <> ?
-            GROUP BY latest.month_year
-            ORDER BY TO_DATE(CONCAT('01-', latest.month_year), 'DD-Mon-YYYY') DESC
+        const sql = `
+            WITH rolling_data AS (
+                -- PART 1: Current Month Live
+                SELECT 
+                    '${curMonthName}' as r_month, 
+                    ${curYear} as r_year, 
+                    SUM(s.${sumField}) as total
+                FROM summary s
+                WHERE (? = '' OR LOWER(s.loa_name) = LOWER(?))
+                  AND s.categories != 'Revenue'
+                  AND s.active_inactive = 'Active'
+                  AND EXISTS (
+                      SELECT 1 FROM user_activity_logs ual 
+                      WHERE ual.loa_id = s.loa_id 
+                      AND ual.month_year = '${curMonthYearLog}'
+                  )
+
+                UNION ALL
+
+                -- PART 2: Past Data from History
+                SELECT 
+                    report_month as r_month, 
+                    report_year as r_year, 
+                    SUM(${sumField}) as total
+                FROM historic_summary
+                WHERE (? = '' OR LOWER(loa_name) = LOWER(?))
+                  AND NOT (report_month = '${curMonthName}' AND report_year = ${curYear})
+                GROUP BY report_year, report_month
+            )
+            SELECT 
+                CONCAT(r_month, '-', r_year) as month_year,
+                ROUND(CAST(COALESCE(total, 0) AS NUMERIC), 2) as total_non_committed
+            FROM rolling_data
+            -- Zero values trend line ko kharab karti hain isliye filter
+            WHERE total IS NOT NULL AND total > 0.01 
+            ORDER BY r_year DESC, TO_DATE(r_month, 'Mon') DESC
             LIMIT 6
-            `,
-            [loa_name, loa_name, active_inactive, active_inactive, currentMonthYear]
-        );
-        res.json(rows);
+        `;
+
+        const [rows] = await db.query(sql, [loa_name, loa_name, loa_name, loa_name]);
+        res.json(rows.reverse());
+
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
 };
 
+// exports.getTrendLoas = async (req, res) => {
+//     try {
+//         const [rows] = await db.query(`SELECT DISTINCT loa_name FROM user_activity_logs ORDER BY loa_name`);
+//         res.json(rows);
+//     } catch (error) { res.status(500).json({ error: error.message }); }
+// };
+
 exports.getTrendLoas = async (req, res) => {
     try {
-        const [rows] = await db.query(`SELECT DISTINCT loa_name FROM user_activity_logs ORDER BY loa_name`);
+        // 🔥 FIX: Dono tables se unique LOA Names uthao (Union logic)
+        const [rows] = await db.query(`
+            SELECT DISTINCT loa_name FROM (
+                SELECT loa_name FROM user_activity_logs
+                UNION
+                SELECT loa_name FROM historic_summary
+            ) as combined_loas 
+            WHERE loa_name IS NOT NULL 
+            ORDER BY loa_name ASC
+        `);
         res.json(rows);
-    } catch (error) { res.status(500).json({ error: error.message }); }
+    } catch (error) { 
+        res.status(500).json({ error: error.message }); 
+    }
 };
 
 // ==========================================
@@ -1983,22 +2069,74 @@ exports.getReviewChanges = async (req, res) => {
     }
 };
 
+// exports.finalizeChanges = async (req, res) => {
+//     try {
+
+//         const monthYear = new Date().toLocaleDateString('en-US', { month: 'short', year: 'numeric' }).replace(' ', '-');
+
+//         // 🔥 Logic Update: Production table ko un sabhi rows ke liye update karein
+//         // jo current mahine ke activity logs mein maujood hain
+//         const updateCondition = `
+//             WHERE EXISTS (
+//                 SELECT 1 FROM user_activity_logs ual 
+//                 WHERE ual.loa_id = summary.loa_id 
+//                 AND ual.categories = summary.categories 
+//                 AND ual.month_year = '${monthYear}'
+//             ) OR ABS(COALESCE(non_committed, 0) - COALESCE(non_committed_editable, 0)) > 0.01
+//         `;
+//         // 1. Move editable -> original in Summary Table
+//         await db.query(`
+//             UPDATE summary 
+//             SET non_committed = non_committed_editable,
+//                 non_committed_project = non_committed_editable_project,
+//                 non_committed_amc = non_committed_editable_amc,
+//                 non_committed_warranty = non_committed_editable_warranty
+//             WHERE ABS(COALESCE(non_committed, 0) - COALESCE(non_committed_editable, 0)) > 0.01
+//         `);
+
+//         // 2. Move editable -> original in Dashboard Table
+//         await db.query(`
+//             UPDATE final_dashboard_table 
+//             SET non_committed = non_committed_editable,
+//                 non_committed_project = non_committed_editable_project,
+//                 non_committed_amc = non_committed_editable_amc,
+//                 non_committed_warranty = non_committed_editable_warranty
+//             WHERE ABS(COALESCE(non_committed, 0) - COALESCE(non_committed_editable, 0)) > 0.01
+//         `);
+
+//         // 3. 🔥 CRITICAL: Mark logs as Finalized taaki Review page clear ho jaye
+//         await db.query(`
+//             UPDATE user_activity_logs 
+//             SET is_finalized = true 
+//             WHERE month_year = ? AND is_finalized = false
+//         `, [monthYear]);
+
+//         // 3. Recalculate EAC and Variance globally
+//         await db.query(`
+//             UPDATE final_dashboard_table 
+//             SET eac = (ptd + open_commitment_KEUR + non_committed),
+//                 eac_vs_asbl = (asbl - (ptd + open_commitment_KEUR + non_committed))
+//         `);
+
+//         // ✅ Trigger Auto Sync engine specifically after Admin Finalizes
+//         triggerAutoSync('non_committed_finalized');
+
+//         filterCache.flushAll(); // Flush RAM Cache
+//         res.status(200).json({ message: "All changes finalized successfully!" });
+//     } catch (error) {
+//         console.error("finalizeChanges Error:", error);
+//         res.status(500).json({ error: error.message });
+//     }
+// };
+
 exports.finalizeChanges = async (req, res) => {
     try {
+        const now = new Date();
+        const month = now.toLocaleString('en-US', { month: 'short' }); // 'Aug'
+        const year = now.getFullYear();
+        const monthYear = `${month}-${year}`;
 
-        const monthYear = new Date().toLocaleDateString('en-US', { month: 'short', year: 'numeric' }).replace(' ', '-');
-
-        // 🔥 Logic Update: Production table ko un sabhi rows ke liye update karein
-        // jo current mahine ke activity logs mein maujood hain
-        const updateCondition = `
-            WHERE EXISTS (
-                SELECT 1 FROM user_activity_logs ual 
-                WHERE ual.loa_id = summary.loa_id 
-                AND ual.categories = summary.categories 
-                AND ual.month_year = '${monthYear}'
-            ) OR ABS(COALESCE(non_committed, 0) - COALESCE(non_committed_editable, 0)) > 0.01
-        `;
-        // 1. Move editable -> original in Summary Table
+        // 1. Move editable -> original in Summary Table (Existing Logic)
         await db.query(`
             UPDATE summary 
             SET non_committed = non_committed_editable,
@@ -2006,9 +2144,10 @@ exports.finalizeChanges = async (req, res) => {
                 non_committed_amc = non_committed_editable_amc,
                 non_committed_warranty = non_committed_editable_warranty
             WHERE ABS(COALESCE(non_committed, 0) - COALESCE(non_committed_editable, 0)) > 0.01
+            OR EXISTS (SELECT 1 FROM user_activity_logs ual WHERE ual.loa_id = summary.loa_id AND ual.categories = summary.categories AND ual.is_finalized = false)
         `);
 
-        // 2. Move editable -> original in Dashboard Table
+        // 2. Move editable -> original in Dashboard Table (Existing Logic)
         await db.query(`
             UPDATE final_dashboard_table 
             SET non_committed = non_committed_editable,
@@ -2018,58 +2157,50 @@ exports.finalizeChanges = async (req, res) => {
             WHERE ABS(COALESCE(non_committed, 0) - COALESCE(non_committed_editable, 0)) > 0.01
         `);
 
-        // 3. 🔥 CRITICAL: Mark logs as Finalized taaki Review page clear ho jaye
+        // 🔥 2.1 NEW: Save Snapshot to Historic Table
+        // Sirf un LOAs ko copy karega jo abhi finalize huye hain
         await db.query(`
-            UPDATE user_activity_logs 
-            SET is_finalized = true 
-            WHERE month_year = ? AND is_finalized = false
-        `, [monthYear]);
+            INSERT INTO historic_summary 
+            (bu, customer, loa_id, loa_name, cost_revenue, categories, merged_wbs, "Merged_wbs_category", 
+             active_inactive, asbl, asbl_amc, asbl_project, asbl_warranty, asbl_loa, ptd, 
+             "open_commitment_KEUR", non_committed, non_committed_amc, non_committed_project, 
+             non_committed_warranty, eac, eac_vs_asbl, updated_by, updated_at, report_month, report_year)
+            SELECT 
+                bu, customer, loa_id, loa_name, cost_revenue, categories, merged_wbs, "Merged_wbs_category", 
+                active_inactive, asbl, asbl_amc, asbl_project, asbl_warranty, asbl_loa, ptd, 
+                "open_commitment_KEUR", non_committed, non_committed_amc, non_committed_project, 
+                non_committed_warranty, eac, eac_vs_asbl, updated_by, updated_at, ?, ?
+            FROM summary
+            WHERE loa_id IN (SELECT DISTINCT loa_id FROM user_activity_logs WHERE is_finalized = false)
+            ON CONFLICT (loa_id, categories, report_month, report_year) 
+            DO UPDATE SET 
+                non_committed = EXCLUDED.non_committed,
+                non_committed_amc = EXCLUDED.non_committed_amc,
+                non_committed_project = EXCLUDED.non_committed_project,
+                non_committed_warranty = EXCLUDED.non_committed_warranty,
+                eac = EXCLUDED.eac,
+                eac_vs_asbl = EXCLUDED.eac_vs_asbl,
+                updated_at = CURRENT_TIMESTAMP
+        `, [month, year]);
 
-        // 3. Recalculate EAC and Variance globally
+        // 3. Mark logs as Finalized (Existing Logic)
+        await db.query(`UPDATE user_activity_logs SET is_finalized = true WHERE is_finalized = false`);
+
+        // 4. Recalculate EAC and Variance globally (Existing Logic)
         await db.query(`
             UPDATE final_dashboard_table 
             SET eac = (ptd + open_commitment_KEUR + non_committed),
                 eac_vs_asbl = (asbl - (ptd + open_commitment_KEUR + non_committed))
         `);
 
-        // ✅ Trigger Auto Sync engine specifically after Admin Finalizes
         triggerAutoSync('non_committed_finalized');
-
-        filterCache.flushAll(); // Flush RAM Cache
-        res.status(200).json({ message: "All changes finalized successfully!" });
+        filterCache.flushAll(); 
+        res.status(200).json({ message: "All changes finalized and history snapshot saved!" });
     } catch (error) {
         console.error("finalizeChanges Error:", error);
         res.status(500).json({ error: error.message });
     }
 };
-
-// exports.checkPendingChanges = async (req, res) => {
-
-//     // 🔥 Sabse pehle variable define karein
-//     const monthYear = new Date().toLocaleDateString('en-US', { month: 'short', year: 'numeric' }).replace(' ', '-');
-//     try {
-//         const [rows] = await db.query(`
-//             SELECT COUNT(*) as count 
-//             FROM final_dashboard_table 
-//             WHERE categories != 'Revenue' 
-//             AND ABS(COALESCE(non_committed, 0) - COALESCE(non_committed_editable, 0)) > 0.01
-//         OR 
-//                 EXISTS (
-//                     SELECT 1 FROM user_activity_logs ual 
-//                     WHERE ual.loa_id = fdt.loa_id 
-//                     AND ual.categories = fdt.categories 
-//                     AND ual.month_year = ?
-//                 )
-//             )
-//         `, [monthYear]);
-        
-//         const count = parseInt(rows[0]?.count || rows[0]?.total || 0);
-//         res.status(200).json({ count });
-//     } catch (error) {
-//         console.error("checkPendingChanges Error:", error);
-//         res.status(500).json({ error: error.message });
-//     }
-// };
 
 exports.checkPendingChanges = async (req, res) => {
     const monthYear = new Date().toLocaleDateString('en-US', { month: 'short', year: 'numeric' }).replace(' ', '-');
