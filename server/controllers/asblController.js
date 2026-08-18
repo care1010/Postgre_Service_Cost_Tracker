@@ -86,50 +86,49 @@ exports.getProjectDetails = async (req, res) => {
 
 // 🔥 3. Manual UI Edit Update (Fixed Parameter Count: 5 = 5)
 exports.updateManualAsbl = async (req, res) => {
-    const { loa_id, wbs_type, updates } = req.body;
+    const { loa_id, wbs_type, updates, updatedBy } = req.body; 
     const connection = await db.getConnection(); 
+    
     try {
-        await connection.beginTransaction(); 
+        // 🔥 NAYA: Current Month-Year format "Aug-2026" generate karein
+        const monthYear = new Date().toLocaleDateString('en-US', { month: 'short', year: 'numeric' }).replace(' ', '-');
 
         let asblCol = 'asbl_project';
         if (wbs_type.toLowerCase().includes('amc')) asblCol = 'asbl_amc';
         if (wbs_type.toLowerCase().includes('warranty')) asblCol = 'asbl_warranty';
 
-        for (const item of updates) {
-            const val = parseFloat(item.asbl) || 0;
-           
-            // 1. Update Summary (3 Placeholders = 3 Params)
-            await connection.query(
-                `UPDATE summary SET ${asblCol} = ? WHERE loa_id = ? AND categories = ?`,
-                [val, loa_id, item.categories]
-            );
+        const [projRows] = await connection.query('SELECT loa_name FROM summary WHERE loa_id = ? LIMIT 1', [loa_id]);
+        const currentProjectName = (projRows && projRows.length > 0) ? projRows[0].loa_name : 'N/A';
 
-            // 2. Update Dashboard Table (🔥 FIX: `val` is passed TWICE because query updates 2 columns!)
+        await connection.beginTransaction(); 
+
+        for (const item of updates) {
+            const newVal = parseFloat(item.asbl) || 0;
+            const oldVal = parseFloat(item.original_asbl) || 0;
+            const categoryName = item.categories;
+
+            await connection.query(`UPDATE summary SET ${asblCol} = ? WHERE loa_id = ? AND categories = ?`, [newVal, loa_id, categoryName]);
+            await connection.query(`UPDATE final_dashboard_table SET asbl = ?, ${asblCol} = ? WHERE loa_id = ? AND categories = ? AND wbs_type = ?`, [newVal, newVal, loa_id, categoryName, wbs_type]);
+
+            // 🔥 UPDATED INSERT: Added month_year column and value (8 parameters total)
             await connection.query(
-                `UPDATE final_dashboard_table SET asbl = ?, ${asblCol} = ?
-                 WHERE loa_id = ? AND categories = ? AND wbs_type = ?`,
-                [val, val, loa_id, item.categories, wbs_type] // <-- Total 5 Params!
+                `INSERT INTO asbl_activity_logs (user_email, loa_id, loa_name, wbs_type, categories, old_value, new_value, month_year) 
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, 
+                [updatedBy || 'System', loa_id, currentProjectName, wbs_type, categoryName, oldVal, newVal, monthYear]
             );
         }
 
-        // 3. Recalculate Variance (2 Placeholders = 2 Params)
-        await connection.query(`
-            UPDATE final_dashboard_table
-            SET eac_vs_asbl = (asbl - (ptd + open_commitment_KEUR + non_committed_editable))
-            WHERE loa_id = ? AND wbs_type = ?`, [loa_id, wbs_type]
-        );
+        await connection.query(`UPDATE final_dashboard_table SET eac_vs_asbl = (asbl - (ptd + open_commitment_KEUR + non_committed_editable)) WHERE loa_id = ? AND wbs_type = ?`, [loa_id, wbs_type]);
 
         await connection.commit();
-
         triggerAutoSync('asbl_updated');
-        
         res.status(200).json({ message: "ASBL Updated Successfully!" });
+
     } catch (error) {
-        await connection.rollback();
-        console.error("updateManualAsbl Error:", error);
+        if (connection) await connection.rollback();
         res.status(500).json({ error: error.message });
     } finally { 
-        connection.release(); 
+        if (connection) connection.release(); 
     }
 };
 

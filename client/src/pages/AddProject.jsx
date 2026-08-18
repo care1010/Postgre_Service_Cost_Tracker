@@ -68,46 +68,70 @@ const AddProject = ({ user }) => {
     };
 
     const handleProcess = async () => {
+    // 🔥 STEP 1: Pehle validation check karo Loading dikhane se PEHLE
+    try {
+        if (inputMethod === 'paste' && !pasteData.trim()) {
+            return Swal.fire({ icon: 'info', title: 'Information', text: 'Please paste data first!' });
+        } 
+        
+        if (inputMethod === 'file' && !selectedFile) {
+            return Swal.fire({ icon: 'info', title: 'Information', text: 'Please select a file first!' });
+        }
+
+        if (inputMethod === 'grid') {
+            const rows = gridData.map(r => [r.bd, r.customer, r.loa_id, r.loa_name, r.wbs_type, r.wbs, r.wbs_desc]);
+            const filteredRows = rows.filter(row => row.some(cell => cell && String(cell).trim() !== ''));
+            if (filteredRows.length === 0) {
+                return Swal.fire({ icon: 'info', title: 'Information', text: 'Input the data first!' });
+            }
+        }
+
+        // 🔥 STEP 2: Agar validation sahi hai, tab Loading dikhao
         setLoading(true);
         Swal.fire({
             title: mode === 'new' ? 'Saving Data...' : 'Updating Project...',
-            html: 'Please wait while we sync the database.',
+            html: 'Please wait while data is being synchronized.',
             allowOutsideClick: false,
             didOpen: () => Swal.showLoading()
         });
 
-        try {
-            if (inputMethod === 'paste') {
-                if (!pasteData.trim()) throw new Error("Please paste data first!");
-                const res = await axios.post(`${process.env.REACT_APP_API_URL}/api/data/process-project-paste`, { rawText: pasteData, mode });
-                handleSuccess(res.data.message);
-            } 
-            else if (inputMethod === 'file') {
-                if (!selectedFile) throw new Error("Please select a file!");
-                const formData = new FormData();
-                formData.append('file', selectedFile);
-                formData.append('mode', mode);
-                const res = await axios.post(`${process.env.REACT_APP_API_URL}/api/data/upload-project-file`, formData, { headers: { 'Content-Type': 'multipart/form-data' } });
-                handleSuccess(res.data.message);
-            } 
-            else if (inputMethod === 'grid') {
-                const headers = ['BUSINESS DIVISION (BD)', 'CT NAME (REPORTED CUST)', 'OPPORTUNITY CODE', 'PROJECT DESCRIPTION', 'WBS TYPE', 'WBS', 'WBS DESCRIPTION'];
-                const rows = gridData.map(r => [r.bd, r.customer, r.loa_id, r.loa_name, r.wbs_type, r.wbs, r.wbs_desc]);
-                const filteredRows = rows.filter(row => row.some(cell => cell.trim() !== ''));
-                if (filteredRows.length === 0) throw new Error("Table is empty!");
-
-                const res = await axios.post(`${process.env.REACT_APP_API_URL}/api/data/process-project-paste`, { 
-                    rawText: [headers, ...filteredRows].map(r => r.join('\t')).join('\n'), 
-                    mode 
-                });
-                handleSuccess(res.data.message);
-            }
-        } catch (err) {
-            Swal.fire({ icon: 'error', title: 'Error', text: err.response?.data?.error || err.message });
-        } finally {
-            setLoading(false);
+        // 🔥 STEP 3: API Calls
+        if (inputMethod === 'paste') {
+            const res = await axios.post(`${process.env.REACT_APP_API_URL}/api/data/process-project-paste`, { rawText: pasteData, mode, email: user?.email });
+            handleSuccess(res.data.message);
+        } 
+        else if (inputMethod === 'file') {
+            const formData = new FormData();
+            formData.append('file', selectedFile);
+            formData.append('mode', mode);
+            formData.append('email', user?.email);
+            const res = await axios.post(`${process.env.REACT_APP_API_URL}/api/data/upload-project-file`, formData, { headers: { 'Content-Type': 'multipart/form-data' } });
+            handleSuccess(res.data.message);
+        } 
+        else if (inputMethod === 'grid') {
+            const headers = ['BUSINESS DIVISION (BD)', 'CT NAME (REPORTED CUST)', 'OPPORTUNITY CODE', 'PROJECT DESCRIPTION', 'WBS TYPE', 'WBS', 'WBS DESCRIPTION'];
+            const rows = gridData.map(r => [r.bd, r.customer, r.loa_id, r.loa_name, r.wbs_type, r.wbs, r.wbs_desc]);
+            const filteredRows = rows.filter(row => row.some(cell => cell && String(cell).trim() !== ''));
+            
+            const res = await axios.post(`${process.env.REACT_APP_API_URL}/api/data/process-project-paste`, { 
+                rawText: [headers, ...filteredRows].map(r => r.join('\t')).join('\n'), 
+                mode,
+                email: user?.email
+            });
+            handleSuccess(res.data.message);
         }
-    };
+
+    } catch (err) {
+        // 🔥 STEP 4: Sirf actual Server/Network errors ke liye hi "Error" dikhao
+        Swal.fire({ 
+            icon: 'error', 
+            title: 'Action Failed', 
+            text: err.response?.data?.error || err.message 
+        });
+    } finally {
+        setLoading(false);
+    }
+};
 
     const handleSuccess = (msg) => {
         Swal.fire({ icon: 'success', title: 'data Updated Success', text: msg });

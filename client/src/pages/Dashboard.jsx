@@ -167,12 +167,55 @@ const Dashboard = ({ user, filters, onFilterChange, onResetFilters }) => {
         return () => { clearTimeout(timer); controller.abort(); };
     }, [JSON.stringify(filters), user]); // eslint-disable-line
 
-    // ─── TREND LOAs ───
-    useEffect(() => {
-        axios.get(`${process.env.REACT_APP_API_URL}/api/data/trend-loas`)
-            .then(res => setTrendLoas(res.data))
-            .catch(console.error);
-    }, []);
+    // ─── TREND LOAs Fetch (Updated for Sync with Sidebar) ───
+useEffect(() => {
+    const fetchTrendLoas = async () => {
+        try {
+            // 🔥 Syncing with Global Sidebar Filters
+            const params = buildQueryParams(filters, {
+                type: user?.type,
+                allowedCustomers: allowedCustomers.join(',')
+            });
+            
+            const res = await axios.get(`${process.env.REACT_APP_API_URL}/api/data/trend-loas?${params.toString()}`);
+            
+            // Backend se array of objects aayega [{loa_name: '...'}, ...]
+            setTrendLoas(res.data || []);
+            
+            // UX: Agar purana selected LOA naye filtered list mein nahi hai, toh reset kar do
+            if (selectedTrendLoa && !res.data.some(item => item.loa_name === selectedTrendLoa)) {
+                setSelectedTrendLoa('');
+            }
+        } catch (err) { 
+            console.error("Error syncing Trend LOAs:", err); 
+        }
+    };
+    
+    if (user) fetchTrendLoas();
+}, [JSON.stringify(filters), user]); // 🔥 Re-fetch when sidebar filters change
+
+    // ─── 1. Trend Data Fetch Logic (Syncing Global + Local) ───
+useEffect(() => {
+    const fetchTrendData = async () => {
+        try {
+            // 🔥 SYNC LOGIC: 
+            // Agar Sidebar (filters.loa_name) mein kuch selected hai toh usey lo
+            // Warna graph ke local dropdown (selectedTrendLoa) ko lo
+            const activeLoa = (filters.loa_name && filters.loa_name.length > 0) 
+                ? filters.loa_name[0] 
+                : selectedTrendLoa;
+
+            const params = buildQueryParams(filters, { 
+                loa_name: activeLoa 
+            });
+
+            const res = await axios.get(`${process.env.REACT_APP_API_URL}/api/data/non-committed-trend?${params.toString()}`);
+            setTrendData(res.data);
+        } catch (err) { console.error(err); }
+    };
+    
+    if (user) fetchTrendData();
+}, [selectedTrendLoa, JSON.stringify(filters), user]); // Both triggers refresh
 
     // ─── TREND DATA ───
     useEffect(() => {
@@ -461,7 +504,12 @@ const Dashboard = ({ user, filters, onFilterChange, onResetFilters }) => {
                                 onClick={() => setIsTrendDropdownOpen(!isTrendDropdownOpen)}
                                 className="w-full border-2 border-slate-200 bg-slate-50 text-slate-700 font-bold rounded-xl px-4 py-2.5 flex justify-between items-center cursor-pointer hover:border-blue-400 transition-all shadow-sm"
                             >
-                                <span className="truncate">{selectedTrendLoa ? selectedTrendLoa.toUpperCase() : 'ALL LOAs'}</span>
+                                <span className="truncate">
+                                {/* 🔥 Label Sync: Sidebar selection ko pehle dikhao */}
+                                {filters.loa_name?.length > 0 
+                                    ? filters.loa_name[0].toUpperCase() 
+                                    : (selectedTrendLoa ? selectedTrendLoa.toUpperCase() : 'SELECT TREND LOA')}
+                            </span>
                                 <HiChevronDown className={`transition-transform duration-200 ${isTrendDropdownOpen ? 'rotate-180' : ''}`} />
                             </div>
 

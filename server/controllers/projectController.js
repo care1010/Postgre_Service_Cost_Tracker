@@ -210,6 +210,10 @@ const processProjectData = async (dataGrid, created_by, mode) => {
     let backgroundGroups = {}; 
 
     try {
+
+        // 🔥 FIX: monthYear define kiya CURRENT_TIMESTAMP ke basis pe (mmm-yyyy format)
+        const now = new Date();
+        const monthYear = now.toLocaleString('en-US', { month: 'short' }) + '-' + now.getFullYear();
         await connection.beginTransaction();
         const [catRows] = await connection.query("SELECT category_name as cat, cost_revenue_type as type FROM master_categories");
         
@@ -228,6 +232,12 @@ const processProjectData = async (dataGrid, created_by, mode) => {
                 
                 const mRows = project.wbs_rows.map(r => [project.bu, project.customer, project.loa_id, project.loa_name, r.wbs_type, r.wbs_element, r.wbs_description, mergedWbs, created_by]);
                 await connection.query("INSERT INTO wbs_loa_id_mapping1 (bu, customer, loa_id, loa_name, wbs_type, single_wbs, wbs_description, merged_wbs, created_by) VALUES ? ", [mRows]);
+
+                // 🔥 NAYA: Log entry (monthYear ab defined hai)
+                await connection.query(
+                    `INSERT INTO project_activity_logs (user_email, loa_id, loa_name, action_mode, wbs_count, month_year) VALUES (?, ?, ?, ?, ?, ?)`,
+                    [created_by, loaId, project.loa_name, 'New Project', project.wbs_rows.length, monthYear]
+                );
                 
                 processedLoas.push(loaId);
                 backgroundGroups[loaId] = project;
@@ -252,6 +262,12 @@ const processProjectData = async (dataGrid, created_by, mode) => {
                 const mRows = newWbsToMap.map(r => [project.bu, project.customer, project.loa_id, project.loa_name, r.wbs_type, r.wbs_element, r.wbs_description, "", created_by]);
                 await connection.query("INSERT INTO wbs_loa_id_mapping1 (bu, customer, loa_id, loa_name, wbs_type, single_wbs, wbs_description, merged_wbs, created_by) VALUES ?", [mRows]);
                 await syncProjectWbs(connection, loaId, project.loa_name);
+
+                // 🔥 NAYA: Log entry (monthYear ab defined hai)
+                    await connection.query(
+                        `INSERT INTO project_activity_logs (user_email, loa_id, loa_name, action_mode, wbs_count, month_year) VALUES (?, ?, ?, ?, ?, ?)`,
+                        [created_by, loaId, project.loa_name, 'Added WBS', newWbsToMap.length, monthYear]
+                    );
                 
                 processedLoas.push(loaId);
                 backgroundGroups[loaId] = { ...project, wbs_rows: newWbsToMap };
@@ -268,7 +284,7 @@ const processProjectData = async (dataGrid, created_by, mode) => {
 
         // Return standard feedback
         let finalMessage = processedCount > 0 
-            ? "Submission Received! Analytics will refresh in 5 minutes." 
+            ? "Data Submitted! Data will be refresh in 5 minutes." 
             : "No data was updated.";
         
         if (warnings.length > 0) {
@@ -289,16 +305,18 @@ const processProjectData = async (dataGrid, created_by, mode) => {
 
 exports.processProjectPaste = async (req, res) => {
     try {
-        const { rawText, mode } = req.body;
+        const { rawText, mode, email } = req.body; // 🔥 'email' extract karein
         const dataGrid = rawText.trim().split(/\r?\n/).map(l => l.split('\t'));
-        const result = await processProjectData(dataGrid, req.user?.email || 'System', mode);
+        // req.user?.email fallback ke liye rakha hai, primary 'email' hoga
+        const currentUser = email || req.user?.email || 'System'; 
+        const result = await processProjectData(dataGrid, currentUser, mode);
         res.status(200).json(result);
     } catch (error) { res.status(500).json({ error: error.message }); }
 };
 
 exports.uploadProjectFile = async (req, res) => {
     try {
-        const { mode } = req.body;
+        const { mode, email } = req.body; // 🔥 Multer req.body mein fields de deta hai
         const wb = XLSX.readFile(req.file.path);
         const dataGrid = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: "" });
         const result = await processProjectData(dataGrid, req.user?.email || 'System', mode);

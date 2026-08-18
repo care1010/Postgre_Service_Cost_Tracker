@@ -108,16 +108,24 @@ const AsblAutomation = ({ user }) => {
     const totalAsbl = useMemo(() => filteredData.reduce((sum, row) => sum + (parseFloat(row.asbl) || 0), 0), [filteredData]);
 
     const handleManualSave = async () => {
-        if (!selectedLoaId || !selectedWbsType) return;
-        const changedRows = projectData.filter(row => Number(row.asbl) !== Number(row.original_asbl));
-        if (changedRows.length === 0) return Swal.fire("Info", "No changes.", "info");
-        try {
-            Swal.fire({ title: 'Saving...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
-            await axios.post(`${process.env.REACT_APP_API_URL}/api/data/update-manual-asbl`, { loa_id: selectedLoaId, wbs_type: selectedWbsType, updates: changedRows });
-            setProjectData(projectData.map(r => ({ ...r, original_asbl: r.asbl })));
-            Swal.fire("Saved!", "Success", "success");
-        } catch (err) { Swal.fire("Error", "Fail", "error"); }
-    };
+    if (!selectedLoaId || !selectedWbsType) return;
+    const changedRows = projectData.filter(row => Number(row.asbl) !== Number(row.original_asbl));
+    if (changedRows.length === 0) return Swal.fire("Info", "No changes.", "info");
+
+    try {
+        Swal.fire({ title: 'Saving...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+        
+        await axios.post(`${process.env.REACT_APP_API_URL}/api/data/update-manual-asbl`, { 
+            loa_id: selectedLoaId, 
+            wbs_type: selectedWbsType, 
+            updates: changedRows,
+            updatedBy: user?.email || 'Unknown' // 🔥 NAYA: User email yahan se bhejiye
+        });
+
+        setProjectData(projectData.map(r => ({ ...r, original_asbl: r.asbl })));
+        Swal.fire("Saved!", "Success", "success");
+    } catch (err) { Swal.fire("Error", "Fail", "error"); }
+};
 
     // 🔥 PRO FILTER MENU COMPONENT
     const FilterMenu = ({ field, options, onClear }) => {

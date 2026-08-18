@@ -1061,6 +1061,20 @@ exports.getUserActivityLogs = async (req, res) => {
     } catch (error) { res.status(500).json({ error: error.message }); }
 };
 
+exports.getAsblActivityLogs = async (req, res) => {
+    try {
+        const [rows] = await db.query(`SELECT * FROM asbl_activity_logs ORDER BY created_at DESC`);
+        res.json(rows);
+    } catch (error) { res.status(500).json({ error: error.message }); }
+};
+
+exports.getProjectActivityLogs = async (req, res) => {
+    try {
+        const [rows] = await db.query(`SELECT * FROM project_activity_logs ORDER BY created_at DESC`);
+        res.json(rows);
+    } catch (error) { res.status(500).json({ error: error.message }); }
+};
+
 exports.getPendingUsers = async (req, res) => {
     try {
         const monthYear = new Date().toLocaleDateString('en-US', { month: 'short', year: 'numeric' }).replace(' ', '-');
@@ -1704,22 +1718,47 @@ exports.getNonCommittedTrend = async (req, res) => {
 //     } catch (error) { res.status(500).json({ error: error.message }); }
 // };
 
+// server/controllers/dataController.js mein is function ko update karein
 exports.getTrendLoas = async (req, res) => {
     try {
-        // 🔥 FIX: Dono tables se unique LOA Names uthao (Union logic)
-        const [rows] = await db.query(`
-            SELECT DISTINCT loa_name FROM (
-                SELECT loa_name FROM user_activity_logs
-                UNION
-                SELECT loa_name FROM historic_summary
-            ) as combined_loas 
-            WHERE loa_name IS NOT NULL 
-            ORDER BY loa_name ASC
-        `);
+        const { wbs_type, bu, customer, type, allowedCustomers } = req.query;
+
+        // Multi-select helper
+        const getFilterArray = (val) => (!val || val === 'All' || val === 'null') ? [] : val.split(',').map(v => v.trim().toLowerCase());
+
+        const selWT = getFilterArray(wbs_type);
+        const selBU = getFilterArray(bu);
+        const selCust = getFilterArray(customer);
+        const allowed = getFilterArray(allowedCustomers);
+
+        const buildSubQuery = (tableName) => {
+            let conds = ["loa_name IS NOT NULL"];
+            let subParams = [];
+            
+            // Value check taaki sirf wahi dikhein jinka trend hai
+            const valCol = tableName === 'historic_summary' ? 'non_committed' : 'new_value';
+            conds.push(`${valCol} <> 0`);
+
+            if (selWT.length > 0) { conds.push(`LOWER(wbs_type) IN (?)`); subParams.push(selWT); }
+            if (selBU.length > 0) { conds.push(`LOWER(bu) IN (?)`); subParams.push(selBU); }
+            if (selCust.length > 0) { conds.push(`LOWER(customer) IN (?)`); subParams.push(selCust); }
+            
+            if (type !== 'super_admin' && allowed.length > 0) {
+                conds.push(`LOWER(customer) IN (?)`);
+                subParams.push(allowed);
+            }
+            return { sql: `SELECT DISTINCT loa_name FROM ${tableName} WHERE ${conds.join(' AND ')}`, params: subParams };
+        };
+
+        const logs = buildSubQuery('user_activity_logs');
+        const hist = buildSubQuery('historic_summary');
+
+        const [rows] = await db.query(
+            `SELECT DISTINCT loa_name FROM (${logs.sql} UNION ${hist.sql}) as combined ORDER BY loa_name ASC`,
+            [...logs.params, ...hist.params]
+        );
         res.json(rows);
-    } catch (error) { 
-        res.status(500).json({ error: error.message }); 
-    }
+    } catch (error) { res.status(500).json({ error: error.message }); }
 };
 
 // ==========================================

@@ -58,6 +58,9 @@ router.get('/download-project-template', (req, res) => {
 
 router.get('/project-details', asblController.getProjectDetails);
 router.post('/update-manual-asbl', asblController.updateManualAsbl);
+router.get('/asbl-activity-logs', dataController.getAsblActivityLogs);
+
+router.get('/project-activity-logs', dataController.getProjectActivityLogs);
 
 // ASBL Update route
 router.post('/process-asbl-update', asblController.processAsblUpdate);
