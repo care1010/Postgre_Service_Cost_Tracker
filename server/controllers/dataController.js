@@ -1643,73 +1643,115 @@ exports.getLoaAnalytics = async (req, res) => {
 //     }
 // };
 
+// ==========================================
+// NON-COMMITTED TREND (Rolling 6 Months - Separated by WBS Type)
+// ==========================================
 exports.getNonCommittedTrend = async (req, res) => {
     try {
-        let { loa_name = '', wbs_type = '' } = req.query;
-        if (Array.isArray(loa_name)) loa_name = loa_name[0];
-
-        // 🔥 IMPROVED: Handle multiple selections and columns
-        const wTArr = wbs_type ? String(wbs_type).split(',').map(v => v.trim().toLowerCase()) : [];
-        
-        let sumField = 'non_committed';
-        // Agar sirf ek specific type selected hai toh usi ka trend dikhao
-        if (wTArr.length === 1 && !wTArr.includes('all')) {
-            if (wTArr.includes('amc')) sumField = 'non_committed_amc';
-            else if (wTArr.includes('project')) sumField = 'non_committed_project';
-            else if (wTArr.includes('warranty/other')) sumField = 'non_committed_warranty';
-        }
-
+        const { type, allowedCustomers } = req.query;
         const now = new Date();
         const curMonthName = now.toLocaleString('en-US', { month: 'short' });
         const curYear = now.getFullYear();
         const curMonthYearLog = now.toLocaleDateString('en-US', { month: 'short', year: 'numeric' }).replace(' ', '-');
 
+        // 1. Base RLS and Category conditions
+        let conditions = ["categories != 'Revenue'"];
+        let params = [];
+        applyRLS(type, allowedCustomers, conditions, params);
+
+        // 2. Safely apply Global Filters for Summary & Historic tables
+        const buArr = getValArray(req.query.bu, req.query, 'bu');
+        if (buArr) { conditions.push(`TRIM(LOWER(bu)) IN (?)`); params.push(buArr.map(v => v.trim().toLowerCase())); }
+
+        const custArr = getValArray(req.query.customer, req.query, 'customer');
+        if (custArr) { conditions.push(`TRIM(LOWER(customer)) IN (?)`); params.push(custArr.map(v => v.trim().toLowerCase())); }
+
+        const loaIdArr = getValArray(req.query.loa_ids, req.query, 'loa_ids');
+        if (loaIdArr) { conditions.push(`TRIM(LOWER(loa_id)) IN (?)`); params.push(loaIdArr.map(v => v.trim().toLowerCase())); }
+
+        const loaNameArr = getValArray(req.query.loa_names, req.query, 'loa_names');
+        if (loaNameArr) { conditions.push(`TRIM(LOWER(loa_name)) IN (?)`); params.push(loaNameArr.map(v => v.trim().toLowerCase())); }
+
+        const catArr = getValArray(req.query.category_type, req.query, 'category_type');
+        if (catArr) {
+            const hasAll = catArr.includes('all');
+            const hasLM = catArr.includes('local materials');
+            if (hasLM && !hasAll) conditions.push(`TRIM(LOWER(categories)) = 'local materials'`);
+            else if (!hasAll && !hasLM) conditions.push(`TRIM(LOWER(categories)) <> 'local materials'`);
+        } else {
+            conditions.push(`TRIM(LOWER(categories)) <> 'local materials'`);
+        }
+
+        const activeArr = getValArray(req.query.active_inactive, req.query, 'active_inactive');
+        if (activeArr) {
+            if (activeArr.includes('active') && !activeArr.includes('inactive')) conditions.push(`active_inactive = 'Active'`);
+            if (activeArr.includes('inactive') && !activeArr.includes('active')) conditions.push(`active_inactive = 'Inactive'`);
+        }
+
+        const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+        
+        // Since params are used in two queries (UNION), we duplicate them
+        const doubleParams = [...params, ...params];
+
         const sql = `
             WITH rolling_data AS (
-                -- PART 1: Current Month Live
+                -- PART 1: Current Month Live Data
                 SELECT 
                     '${curMonthName}' as r_month, 
                     ${curYear} as r_year, 
-                    SUM(s.${sumField}) as total
-                FROM summary s
-                WHERE (? = '' OR LOWER(s.loa_name) = LOWER(?))
-                  AND s.categories != 'Revenue'
-                  AND s.active_inactive = 'Active'
-                  AND EXISTS (
-                      SELECT 1 FROM user_activity_logs ual 
-                      WHERE ual.loa_id = s.loa_id 
-                      AND ual.month_year = '${curMonthYearLog}'
-                  )
+                    SUM(non_committed_project) as nc_project,
+                    SUM(non_committed_amc) as nc_amc,
+                    SUM(non_committed_warranty) as nc_warranty
+                FROM summary
+                ${whereClause} 
+                AND active_inactive = 'Active'
+                AND EXISTS (
+                    SELECT 1 FROM user_activity_logs ual 
+                    WHERE ual.loa_id = summary.loa_id 
+                    AND ual.categories = summary.categories
+                    AND ual.month_year = '${curMonthYearLog}'
+                )
 
                 UNION ALL
 
-                -- PART 2: Past Data from History
+                -- PART 2: Past Data from History Table
                 SELECT 
                     report_month as r_month, 
                     report_year as r_year, 
-                    SUM(${sumField}) as total
+                    SUM(non_committed_project) as nc_project,
+                    SUM(non_committed_amc) as nc_amc,
+                    SUM(non_committed_warranty) as nc_warranty
                 FROM historic_summary
-                WHERE (? = '' OR LOWER(loa_name) = LOWER(?))
-                  AND NOT (report_month = '${curMonthName}' AND report_year = ${curYear})
+                ${whereClause}
+                AND NOT (report_month = '${curMonthName}' AND report_year = ${curYear})
                 GROUP BY report_year, report_month
             )
             SELECT 
                 CONCAT(r_month, '-', r_year) as month_year,
-                ROUND(CAST(COALESCE(total, 0) AS NUMERIC), 2) as total_non_committed
+                ROUND(CAST(COALESCE(nc_project, 0) AS NUMERIC), 2) as nc_project,
+                ROUND(CAST(COALESCE(nc_amc, 0) AS NUMERIC), 2) as nc_amc,
+                ROUND(CAST(COALESCE(nc_warranty, 0) AS NUMERIC), 2) as nc_warranty
             FROM rolling_data
-            -- Zero values trend line ko kharab karti hain isliye filter
-            WHERE total IS NOT NULL AND total > 0.01 
+            -- Exclude empty past months to keep chart clean
+            WHERE (COALESCE(nc_project,0) + COALESCE(nc_amc,0) + COALESCE(nc_warranty,0)) > 0.01 
+               OR r_month = '${curMonthName}' 
             ORDER BY r_year DESC, TO_DATE(r_month, 'Mon') DESC
             LIMIT 6
         `;
 
-        const [rows] = await db.query(sql, [loa_name, loa_name, loa_name, loa_name]);
+        const [rows] = await db.query(sql, doubleParams);
+        
+        // Return in chronogical order (oldest to newest left-to-right)
         res.json(rows.reverse());
 
     } catch (error) {
+        console.error("Trend Data Error:", error.message);
         res.status(500).json({ error: error.message });
     }
 };
+
+// We don't need getTrendLoas anymore, but keep it empty to prevent route crashes if mapped
+exports.getTrendLoas = async (req, res) => { res.json([]); };
 
 // exports.getTrendLoas = async (req, res) => {
 //     try {
