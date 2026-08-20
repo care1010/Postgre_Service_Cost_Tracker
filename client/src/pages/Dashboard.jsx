@@ -20,14 +20,14 @@ const buildMappedParams = (filters, extra = {}) => {
     // Map UI Keys to the Keys expected by the Backend ApplyDashboardFilters
     const keyMap = {
         bu: 'bu',
-        customer: 'customers',
-        loa_id: 'loa_ids',
-        loa_name: 'loa_names',
+        customer: 'customer',
+        loa_id: 'loa_id',
+        loa_name: 'loa_name',
         wbs_type: 'wbs_type',
         wbs: 'wbs',
         wbs_description: 'wbs_description',
         active_inactive: 'active_inactive',
-        period: 'periods',
+        period: 'period',
         category_type: 'category_type'
     };
 
@@ -38,7 +38,8 @@ const buildMappedParams = (filters, extra = {}) => {
         if (Array.isArray(val)) {
             const cleaned = [...new Set(val)].filter(v => v && v !== 'All');
             if (cleaned.length > 0) {
-                params.append(backendKey, cleaned.join('|||'));
+                // params.append(backendKey, cleaned.join('|||'));
+                params.append(backendKey, cleaned.join(','));
             }
         } else if (val && val !== 'All') {
             params.append(backendKey, val);
@@ -178,9 +179,10 @@ const Dashboard = ({ user, filters, onFilterChange, onResetFilters }) => {
             try {
                 // 🔥 THE SYNC MAGIC: localTrendLoa OVERRIDES the global loa_name just for this graph!
                 const params = buildMappedParams(filters, { 
-                    loa_names: localTrendLoa || '', // Using loa_names directly forces the backend to read it
+                    loa_name: localTrendLoa || '', // Using loa_names directly forces the backend to read it
                     type: user?.type,
-                    allowedCustomers: allowedCustomers.join('|||')
+                    // allowedCustomers: allowedCustomers.join('|||')
+                    allowedCustomers: allowedCustomers.join(',') // Join by comma
                 });
 
                 const res = await axios.get(`${process.env.REACT_APP_API_URL}/api/data/non-committed-trend?${params.toString()}`);

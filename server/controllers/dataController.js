@@ -1654,12 +1654,12 @@ exports.getNonCommittedTrend = async (req, res) => {
         const curYear = now.getFullYear();
         const curMonthYearLog = now.toLocaleDateString('en-US', { month: 'short', year: 'numeric' }).replace(' ', '-');
 
-        // 1. Base RLS and Category conditions
+        // 1. Base conditions
         let conditions = ["categories != 'Revenue'"];
         let params = [];
         applyRLS(type, allowedCustomers, conditions, params);
 
-        // 2. Safely apply Global Filters for Summary & Historic tables
+        // 2. Applying Global Filters (Syncing with Sidebar)
         const buArr = getValArray(req.query.bu, req.query, 'bu');
         if (buArr) { conditions.push(`TRIM(LOWER(bu)) IN (?)`); params.push(buArr.map(v => v.trim().toLowerCase())); }
 
@@ -1689,13 +1689,11 @@ exports.getNonCommittedTrend = async (req, res) => {
         }
 
         const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
-        
-        // Since params are used in two queries (UNION), we duplicate them
         const doubleParams = [...params, ...params];
 
         const sql = `
             WITH rolling_data AS (
-                -- PART 1: Current Month Live Data
+                -- 🟢 PART 1: Current Month Live Data (ONLY FINALIZED)
                 SELECT 
                     '${curMonthName}' as r_month, 
                     ${curYear} as r_year, 
@@ -1710,11 +1708,13 @@ exports.getNonCommittedTrend = async (req, res) => {
                     WHERE ual.loa_id = summary.loa_id 
                     AND ual.categories = summary.categories
                     AND ual.month_year = '${curMonthYearLog}'
+                    -- 🔥 CRITICAL FIX: Sirf wahi data dikhao jo Admin finalize kar chuka hai
+                    AND ual.is_finalized = true 
                 )
 
                 UNION ALL
 
-                -- PART 2: Past Data from History Table
+                -- 🟡 PART 2: Past Data from History Table
                 SELECT 
                     report_month as r_month, 
                     report_year as r_year, 
@@ -1732,16 +1732,12 @@ exports.getNonCommittedTrend = async (req, res) => {
                 ROUND(CAST(COALESCE(nc_amc, 0) AS NUMERIC), 2) as nc_amc,
                 ROUND(CAST(COALESCE(nc_warranty, 0) AS NUMERIC), 2) as nc_warranty
             FROM rolling_data
-            -- Exclude empty past months to keep chart clean
-            WHERE (COALESCE(nc_project,0) + COALESCE(nc_amc,0) + COALESCE(nc_warranty,0)) > 0.01 
-               OR r_month = '${curMonthName}' 
+            
             ORDER BY r_year DESC, TO_DATE(r_month, 'Mon') DESC
             LIMIT 6
         `;
 
         const [rows] = await db.query(sql, doubleParams);
-        
-        // Return in chronogical order (oldest to newest left-to-right)
         res.json(rows.reverse());
 
     } catch (error) {

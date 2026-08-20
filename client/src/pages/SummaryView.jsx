@@ -151,6 +151,8 @@ const SummaryView = ({ user, filters, onFilterChange, onResetFilters, setActiveT
     const [collapseView, setCollapseView] = useState(false);
     const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
+    const [pendingCount, setPendingCount] = useState(0); // 🔥 Pending changes count track karne ke liye
+
     // Dedupe allowedCustomers — login ke time duplicate values aa sakti hain
     const allowedCustomers = dedupeArray(user?.allowedCustomers);
 
@@ -160,6 +162,21 @@ const SummaryView = ({ user, filters, onFilterChange, onResetFilters, setActiveT
     // Purani in-flight requests cancel ho jaati hain -> no pool exhaustion
     const debounceTimer = useRef(null);
     const abortControllerRef = useRef(null);
+
+    // 🔥 NAYA: Pending changes check karne ka function
+const fetchPendingCount = useCallback(async () => {
+    if (user?.type === 'admin' || user?.type === 'super_admin') {
+        try {
+            const res = await axios.get(`${process.env.REACT_APP_API_URL}/api/data/check-pending-changes`);
+            setPendingCount(res.data.count || 0);
+        } catch (err) { console.error("Error checking pending count:", err); }
+    }
+}, [user]);
+
+// Page load hone par check karein
+useEffect(() => {
+    fetchPendingCount();
+}, [fetchPendingCount]);
 
     useEffect(() => {
         if (!user) return;
@@ -340,7 +357,10 @@ const SummaryView = ({ user, filters, onFilterChange, onResetFilters, setActiveT
             options={options} 
             onFilterChange={onFilterChange} 
             onResetFilters={onResetFilters}
-            onBack={() => setIsReviewMode(false)} 
+            onBack={() => {
+                setIsReviewMode(false); // Review mode band karo
+                fetchPendingCount();    // 🔥 NAYA: Count ko refresh karo taaki button highlight hat jaye
+            }} 
         />
     );
 }
@@ -382,9 +402,25 @@ const SummaryView = ({ user, filters, onFilterChange, onResetFilters, setActiveT
                             <>
                                 {/* REVIEW button sirf Super Admin ko dikhega */}
                                 {user?.type === 'super_admin' && (
-                                    <button onClick={handleReviewClick} className="border border-slate-300 border-t-4 border-t-green-600 bg-white px-5 py-2 shadow-sm hover:shadow-md transition-all flex items-center gap-2 rounded-lg">
-                                        <HiOutlineRefresh className="text-green-700" /> 
-                                        <span className="text-sm font-semibold text-green-700">Review</span>
+                                    <button 
+                                        onClick={handleReviewClick} 
+                                        className={`border-2 px-5 py-2 shadow-sm hover:shadow-md transition-all flex items-center gap-2 rounded-lg relative
+                                            ${pendingCount > 0 
+                                                ? 'border-green-500 bg-green-50 animate-pulse-subtle' // 🔥 Pending data hai toh highlight
+                                                : 'border-slate-300 bg-white'
+                                            }`}
+                                    >
+                                        <HiOutlineRefresh className={`${pendingCount > 0 ? 'text-green-600' : 'text-green-700'}`} /> 
+                                        <span className={`text-sm font-bold ${pendingCount > 0 ? 'text-green-700' : 'text-green-700'}`}>
+                                            Review
+                                        </span>
+                                        
+                                        {/* 🔥 Chota Badge indication ke liye */}
+                                        {pendingCount > 0 && (
+                                            <span className="absolute -top-2 -right-2 bg-red-500 text-white text-[10px] w-5 h-5 flex items-center justify-center rounded-full border-2 border-white shadow-sm">
+                                                !
+                                            </span>
+                                        )}
                                     </button>
                                 )}
 
