@@ -81,41 +81,21 @@ const Logs = () => {
         } catch (err) { console.error(err); }
     };
 
-    // Logs.jsx mein is function ko dhundiye aur replace kijiye
     const exportToExcel = () => {
-        let exportData = filteredLogs.map(row => {
-            if (activeTab === 'non-committed') {
-                return { 
-                    User: row.user_email, BU: row.bu, Customer: row.customer, 
-                    LOA: row.loa_name, LOA_ID: row.loa_id, Category: row.categories, 
-                    Old_Value: row.old_value, New_Value: row.new_value, 
-                    Month: row.month_year, Time: new Date(row.created_at).toLocaleString() 
-                };
-            } else if (activeTab === 'asbl') {
-                return { 
-                    User: row.user_email, LOA_ID: row.loa_id, LOA_Name: row.loa_name, 
-                    WBS_Type: row.wbs_type, Category: row.categories, 
-                    Old_ASBL: row.old_value, New_ASBL: row.new_value, 
-                    Month: row.month_year, Time: new Date(row.created_at).toLocaleString() 
-                };
-            } else {
-                // 🔥 YAHAN HAI WOH ELSE BLOCK (Add Project Logs ke liye)
-                return { 
-                    'LOA ID': row.loa_id, 
-                    'Project Name': row.loa_name, 
-                    'Action': row.action_mode, 
-                    'WBS Elements': row.single_wbs
-                };
-            }
-        });
-
-    const worksheet = XLSX.utils.json_to_sheet(exportData);
-    const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, 'Activity Logs');
-    const excelBuffer = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
-    const file = new Blob([excelBuffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-    saveAs(file, `${activeTab}_Logs.xlsx`);
-};
+        const exportData = filteredLogs.map(row => ({
+            User: row.user_email,
+            LOA_ID: row.loa_id,
+            LOA: row.loa_name,
+            Category: row.categories,
+            Value_Change: `${row.old_value} -> ${row.new_value}`,
+            Month: row.month_year,
+            Timestamp: new Date(row.created_at).toLocaleString()
+        }));
+        const ws = XLSX.utils.json_to_sheet(exportData);
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, 'Audit_Logs');
+        XLSX.writeFile(wb, `${activeTab}_${selectedMonth}_Logs.xlsx`);
+    };
 
     return (
         <div className="p-6 font-['Calibri']">
@@ -204,7 +184,6 @@ const Logs = () => {
                                             <th className="p-4 text-[13px] uppercase">LOA Name</th>
                                             <th className="p-4 text-[13px] uppercase">Action</th>
                                             <th className="p-4 text-[13px] uppercase text-center">WBS Count</th>
-                                            <th className="p-4 text-[13px] uppercase">WBS Elements</th> {/* 🔥 NAYA */}
                                             <th className="p-4 text-[13px] uppercase text-center">Month</th>
                                             <th className="p-4 text-[13px] uppercase">User</th>
                                             <th className="p-4 text-[13px] uppercase text-center">Time</th>
@@ -214,50 +193,49 @@ const Logs = () => {
                             </thead>
                             <tbody className="bg-white divide-y">
                                 {loading ? (
-                                    <tr><td colSpan="11" className="p-20 text-center font-bold text-slate-400 uppercase tracking-widest">Loading records...</td></tr>
+                                    <tr><td colSpan="10" className="p-20 text-center font-bold text-slate-400 uppercase tracking-widest">Loading records...</td></tr>
                                 ) : filteredLogs.length === 0 ? (
-                                    <tr><td colSpan="11" className="p-20 text-center text-slate-300 font-bold uppercase">No data found for {selectedMonth}</td></tr>
+                                    <tr><td colSpan="10" className="p-20 text-center text-slate-300 font-bold uppercase">No data found for {selectedMonth}</td></tr>
                                 ) : filteredLogs.map((row) => (
                                     <tr key={row.id} className="hover:bg-blue-50/30 transition-colors">
-                                        {activeTab === 'non-committed' ? (
+                                        {/* ... (Body mapping same as previous code) ... */}
+                                        {activeTab === 'non-committed' && (
                                             <>
-                                                <td className="p-4 font-bold text-[14px]">{row.bu}</td>
-                                                <td className="p-4 text-[14px] truncate max-w-[120px]">{row.customer}</td>
-                                                <td className="p-4 text-[14px] truncate max-w-[200px]">{row.loa_name}</td>
-                                                <td className="p-4 font-black text-blue-700 text-[14px]">{row.loa_id}</td>
-                                                <td className="p-4 text-[14px] text-slate-500">{row.categories}</td>
-                                                <td className="p-4 text-right font-mono text-[14px]">{Number(row.old_value || 0).toFixed(2)}</td>
-                                                <td className="p-4 text-right font-mono text-[14px] text-emerald-600 font-bold">{Number(row.new_value || 0).toFixed(2)}</td>
-                                                <td className="p-4 text-[14px] font-bold text-slate-600">{row.month_year}</td>
-                                                <td className="p-4 text-[14px]">{row.user_email}</td>
-                                                <td className="p-4 text-[14px] text-slate-400 text-center">{new Date(row.created_at).toLocaleString()}</td>
+                                                <td className="p-4 font-bold text-xs">{row.bu}</td>
+                                                <td className="p-4 text-xs truncate max-w-[120px]">{row.customer}</td>
+                                                <td className="p-4 text-xs truncate max-w-[150px]">{row.loa_name}</td>
+                                                <td className="p-4 font-black text-blue-700 text-xs">{row.loa_id}</td>
+                                                <td className="p-4 text-xs text-slate-500">{row.categories}</td>
+                                                <td className="p-4 text-right font-mono text-xs">{Number(row.old_value || 0).toFixed(2)}</td>
+                                                <td className="p-4 text-right font-mono text-xs text-emerald-600 font-bold">{Number(row.new_value || 0).toFixed(2)}</td>
+                                                <td className="p-4 text-xs font-bold text-slate-600">{row.month_year}</td>
+                                                <td className="p-4 text-xs">{row.user_email}</td>
+                                                <td className="p-4 text-[11px] text-slate-400 text-center">{new Date(row.created_at).toLocaleString()}</td>
                                             </>
-                                        ) : activeTab === 'asbl' ? (
+                                        )}
+                                        {activeTab === 'asbl' && (
                                             <>
-                                                <td className="p-4 font-black text-blue-700 text-[14px]">{row.loa_id}</td>
-                                                <td className="p-4 text-[14px]">{row.loa_name}</td>
-                                                <td className="p-4"><span className="bg-purple-100 text-purple-700 px-2 py-0.5 rounded text-[14px] font-black">{row.wbs_type}</span></td>
-                                                <td className="p-4 text-[14px] text-slate-500">{row.categories}</td>
-                                                <td className="p-4 text-right font-mono text-[14px]">{Number(row.old_value || 0).toFixed(2)}</td>
-                                                <td className="p-4 text-right font-mono text-[14px] text-blue-600 font-bold">{Number(row.new_value || 0).toFixed(2)}</td>
-                                                <td className="p-4 text-[14px] font-bold text-slate-600">{row.month_year || '-'}</td>
-                                                <td className="p-4 text-[14px]">{row.user_email}</td>
-                                                <td className="p-4 text-[14px] text-slate-600 text-center">{new Date(row.created_at).toLocaleString()}</td>
+                                                <td className="p-4 font-black text-blue-700 text-xs">{row.loa_id}</td>
+                                                <td className="p-4 text-xs truncate max-w-[200px]">{row.loa_name}</td>
+                                                <td className="p-4"><span className="bg-purple-100 text-purple-700 px-2 py-0.5 rounded text-[10px] font-black">{row.wbs_type}</span></td>
+                                                <td className="p-4 text-xs text-slate-500">{row.categories}</td>
+                                                <td className="p-4 text-right font-mono text-xs">{Number(row.old_value || 0).toFixed(2)}</td>
+                                                <td className="p-4 text-right font-mono text-xs text-blue-600 font-bold">{Number(row.new_value || 0).toFixed(2)}</td>
+                                                <td className="p-4 text-xs font-bold text-slate-600">{row.month_year || '-'}</td>
+                                                <td className="p-4 text-xs">{row.user_email}</td>
+                                                <td className="p-4 text-[11px] text-slate-400 text-center">{new Date(row.created_at).toLocaleString()}</td>
                                             </>
-                                        ) : (
+                                        )}
+                                        {activeTab === 'add-project' && (
                                             <>
-                                                <td className="p-4 font-black text-blue-700 text-[14px]">{row.loa_id}</td>
-                                                <td className="p-4 text-[14px] truncate max-w-[200px]">{row.loa_name}</td>
+                                                <td className="p-4 font-black text-blue-700 text-xs">{row.loa_id}</td>
+                                                <td className="p-4 text-xs truncate max-w-[200px]">{row.loa_name}</td>
                                                 <td className="p-4">
                                                     <span className={`px-2 py-0.5 rounded text-[10px] font-black ${row.action_mode === 'New Project' ? 'bg-blue-100 text-blue-700' : 'bg-indigo-100 text-indigo-700'}`}>
                                                         {row.action_mode}
                                                     </span>
                                                 </td>
-                                                <td className="p-4 text-center font-bold text-[14px]">{row.wbs_count}</td>
-                                                {/* 🔥 FIXED: Direct mapping without extra whitespace */}
-                                                <td className="p-4 text-[12px] text-slate-500 italic truncate max-w-[200px]" title={row.single_wbs}>
-                                                    {row.single_wbs || '-'}
-                                                </td>
+                                                <td className="p-4 text-center font-bold text-xs">{row.wbs_count}</td>
                                                 <td className="p-4 text-xs font-bold text-slate-600 text-center">{row.month_year || '-'}</td>
                                                 <td className="p-4 text-xs">{row.user_email}</td>
                                                 <td className="p-4 text-[11px] text-slate-400 text-center">{new Date(row.created_at).toLocaleString()}</td>

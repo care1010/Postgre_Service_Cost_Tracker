@@ -1070,7 +1070,8 @@ exports.getAsblActivityLogs = async (req, res) => {
 
 exports.getProjectActivityLogs = async (req, res) => {
     try {
-        const [rows] = await db.query(`SELECT * FROM project_activity_logs ORDER BY created_at DESC`);
+        // 🔥 Ensure karein ki 'single_wbs' column query mein aa raha ho
+        const [rows] = await db.query(`SELECT id, user_email, loa_id, loa_name, action_mode, wbs_count, month_year, single_wbs, created_at FROM project_activity_logs ORDER BY created_at DESC`);
         res.json(rows);
     } catch (error) { res.status(500).json({ error: error.message }); }
 };
