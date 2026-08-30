@@ -4,6 +4,7 @@ const ExcelJS = require('exceljs');
 const XLSX = require('xlsx');
 const fs = require('fs');
 const NodeCache = require('node-cache');
+const mailService = require("../services/mailService"); 
 
 const filterCache = new NodeCache({ stdTTL: 300 });
 const inFlightRequests = new Map();
@@ -1068,9 +1069,11 @@ exports.getAsblActivityLogs = async (req, res) => {
     } catch (error) { res.status(500).json({ error: error.message }); }
 };
 
+// server/controllers/dataController.js
 exports.getProjectActivityLogs = async (req, res) => {
     try {
-        const [rows] = await db.query(`SELECT * FROM project_activity_logs ORDER BY created_at DESC`);
+        // 🔥 Ensure karein ki 'single_wbs' column query mein aa raha ho
+        const [rows] = await db.query(`SELECT id, user_email, loa_id, loa_name, action_mode, wbs_count, month_year, single_wbs, created_at FROM project_activity_logs ORDER BY created_at DESC`);
         res.json(rows);
     } catch (error) { res.status(500).json({ error: error.message }); }
 };
@@ -2502,4 +2505,145 @@ exports.uploadERPResource = async (req, res) => {
     if (req.file && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
     res.status(500).json({ message: 'Upload failed: ' + err.message });
   }
+};
+
+// 1. 🔥 NAYA: Table ko refresh karne ka logic (Strict UI-Sync Logic)
+const refreshAlertSnapshot = async () => {
+    console.log("🔄 Syncing Snapshot with Dashboard WBS-Level Logic...");
+    try {
+        await db.query(`TRUNCATE TABLE stakeholder_metrics_snapshot`);
+        
+        const insertSql = `
+            INSERT INTO stakeholder_metrics_snapshot (bu, customer, wbs_type, asbl, ptd, eac, ptd_perc, eac_perc)
+            SELECT 
+                bu, 
+                customer,
+                wbs_type,
+                ROUND(CAST(SUM(cat_asbl) AS NUMERIC), 2) as total_asbl,
+                ROUND(CAST(SUM(cat_ptd) AS NUMERIC), 2) as total_ptd,
+                ROUND(CAST(SUM(cat_ptd + cat_oc + cat_nc) AS NUMERIC), 2) as total_eac,
+                
+                -- 🔥 Formula: (PTD / ASBL) * 100
+                CASE 
+                    WHEN SUM(cat_asbl) > 0 THEN ROUND(CAST((SUM(cat_ptd) / SUM(cat_asbl)) * 100 AS NUMERIC), 2) 
+                    ELSE 0 
+                END as ptd_p,
+                
+                -- 🔥 Formula: (EAC / ASBL) * 100 
+                CASE 
+                    WHEN SUM(cat_asbl) > 0 THEN ROUND(CAST((SUM(cat_ptd + cat_oc + cat_nc) / SUM(cat_asbl)) * 100 AS NUMERIC), 2) 
+                    ELSE 0 
+                END as eac_p
+
+            FROM (
+                /* 🟢 Step 1: Extract Correct Dynamic ASBL & NC per WBS Type using Static Join (Exactly like UI) */
+                SELECT 
+                    t.bu, 
+                    t.customer, 
+                    t.wbs_type,
+                    t."Merged_wbs_categories",
+                    
+                    -- 🔥 The Magic Fix: Pulls absolute max values from the static subquery!
+                    MAX(
+                        CASE 
+                            WHEN LOWER(t.wbs_type) LIKE '%project%' THEN COALESCE(static.asbl_project_val, 0)
+                            WHEN LOWER(t.wbs_type) LIKE '%amc%' THEN COALESCE(static.asbl_amc_val, 0)
+                            WHEN LOWER(t.wbs_type) LIKE '%warranty%' THEN COALESCE(static.asbl_warranty_val, 0)
+                            ELSE COALESCE(static.asbl_val, 0)
+                        END
+                    ) as cat_asbl,
+                    
+                    SUM(t.ptd) as cat_ptd,
+                    SUM(t.open_commitment_KEUR) as cat_oc,
+                    
+                    MAX(
+                        CASE 
+                            WHEN LOWER(t.wbs_type) LIKE '%project%' THEN COALESCE(static.nc_project_val, 0)
+                            WHEN LOWER(t.wbs_type) LIKE '%amc%' THEN COALESCE(static.nc_amc_val, 0)
+                            WHEN LOWER(t.wbs_type) LIKE '%warranty%' THEN COALESCE(static.nc_warranty_val, 0)
+                            ELSE COALESCE(static.nc_val, 0)
+                        END
+                    ) as cat_nc
+
+                FROM final_dashboard_table t
+                
+                -- 🔥 INNER JOIN to solve the 'Project' value bug 
+                LEFT JOIN (
+                    SELECT 
+                        "Merged_wbs_categories",
+                        MAX(asbl_project) as asbl_project_val,
+                        MAX(asbl_amc) as asbl_amc_val,
+                        MAX(asbl_warranty) as asbl_warranty_val,
+                        MAX(asbl) as asbl_val,
+                        MAX(COALESCE(NULLIF(non_committed_editable_project, 0), non_committed_project, 0)) as nc_project_val,
+                        MAX(COALESCE(NULLIF(non_committed_editable_amc, 0), non_committed_amc, 0)) as nc_amc_val,
+                        MAX(COALESCE(NULLIF(non_committed_editable_warranty, 0), non_committed_warranty, 0)) as nc_warranty_val,
+                        MAX(COALESCE(NULLIF(non_committed_editable, 0), non_committed, 0)) as nc_val
+                    FROM final_dashboard_table
+                    GROUP BY "Merged_wbs_categories"
+                ) as static ON t."Merged_wbs_categories" = static."Merged_wbs_categories"
+
+                WHERE t.active_inactive = 'Active'
+                  AND t.wbs_type IS NOT NULL
+                  -- Exclusions strictly applied
+                  AND (t.categories IS NULL OR TRIM(LOWER(t.categories)) NOT IN ('revenue', 'not to considered', 'ntc', 'local materials'))
+                  AND (t.cost_revenue IS NULL OR TRIM(LOWER(t.cost_revenue)) NOT IN ('revenue', 'ntc'))
+
+                GROUP BY t.bu, t.customer, t.wbs_type, t."Merged_wbs_categories"
+            ) as consolidated_category_level
+            
+            /* 🟢 Step 2: Roll up at BU + Customer + WBS_TYPE level */
+            GROUP BY bu, customer, wbs_type
+            
+            -- 🔥 FIX: If Total ASBL is 0, completely drop this row! (No infinity, no useless emails)
+            HAVING SUM(cat_asbl) > 0`;
+
+        await db.query(insertSql);
+        console.log("✅ Snapshot updated securely. (Fixed Project Values & 0 ASBL Ignored)");
+    } catch (err) {
+        console.error("❌ refreshAlertSnapshot Failed:", err.message);
+    }
+};
+
+// 2. 🔥 UPDATED: Core Mailer Logic (Duplicates Removed)
+exports.runBGDMAlertsCore = async () => {
+    let mailsSent = 0;
+    try {
+        await refreshAlertSnapshot();
+
+        // 🟢 Fetch only valid alerts
+        const [rows] = await db.query(`
+            SELECT * FROM stakeholder_metrics_snapshot 
+            WHERE ptd_perc > 80 OR eac_perc > 100
+        `);
+
+        for (let row of rows) {
+            // 🔥 THE FIX: Added DISTINCT to prevent duplicate emails for the same customer!
+            const [bgdmUsers] = await db.query(`
+                SELECT DISTINCT a.email 
+                FROM access a
+                JOIN users u ON a.email = u.email
+                WHERE LOWER(TRIM(a.customer)) = LOWER(TRIM(?))
+                AND TRIM(u.user_role) = 'BGDM'
+            `, [row.customer]);
+
+            for (let user of bgdmUsers) {
+                // Test Override: Neha
+                const testEmail = "neha.sain.ext@nokia.com"; 
+
+                await mailService.sendCustomerUtilizationAlert(
+                    { email: testEmail, role: 'BGDM Stakeholder' },
+                    { 
+                        bu: row.bu, 
+                        customer: row.customer, 
+                        wbsType: row.wbs_type,
+                        ptdPerc: Number(row.ptd_perc).toFixed(1) + "%", 
+                        eacPerc: Number(row.eac_perc).toFixed(1) + "%"
+                    }
+                );
+                mailsSent++;
+            }
+        }
+        return mailsSent;
+    } catch (error) { throw error; }
 };

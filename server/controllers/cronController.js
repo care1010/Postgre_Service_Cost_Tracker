@@ -81,43 +81,126 @@ const runSync = async (triggeredBy = 'cron') => {
 };
 
 
+// 🔥 NAYA: Alerts Runner
+const runMonthlyAlerts = async () => {
+    console.log("🚀 CRON: Starting Monthly BGDM Alerts...");
+    try {
+        await db.query("UPDATE cron_config SET last_run_at = NOW(), last_run_status = 'running' WHERE job_name = 'bgdm_alerts'");
+        
+        const mailsSent = await dataController.runBGDMAlertsCore();
+
+        await db.query("UPDATE cron_config SET last_run_status = 'success', last_run_message = ?, run_count = run_count + 1 WHERE job_name = 'bgdm_alerts'", 
+        [`Sent ${mailsSent} alerts successfully`]);
+        console.log(`✅ CRON Alerts: Completed. Mails sent: ${mailsSent}`);
+    } catch (error) {
+        console.error('❌ CRON Alerts Error:', error.message);
+        await db.query("UPDATE cron_config SET last_run_status = 'error', last_run_message = ? WHERE job_name = 'bgdm_alerts'", [error.message.substring(0, 250)]);
+    }
+};
+
+// 🔥 NAYA: Monthly Project Audit Runner
+const runMonthlyProjectAudit = async () => {
+    console.log("🚀 CRON: Starting Monthly Project WBS Audit...");
+    try {
+        await db.query("UPDATE cron_config SET last_run_at = NOW(), last_run_status = 'running' WHERE job_name = 'monthly_project_audit'");
+
+        // 1. Get Previous Month name
+        const now = new Date();
+        now.setMonth(now.getMonth() - 1);
+        const reportMonth = now.toLocaleString('en-US', { month: 'long', year: 'numeric' });
+
+        // 2. Fetch logs from previous month (Postgres Logic)
+        const [logRows] = await db.query(`
+            SELECT user_email, loa_id, loa_name, action_mode, wbs_count, single_wbs, created_at 
+            FROM project_activity_logs 
+            WHERE created_at >= date_trunc('month', current_date - interval '1 month')
+              AND created_at < date_trunc('month', current_date)
+            ORDER BY created_at ASC
+        `);
+
+        // 3. Generate Excel
+        const workbook = new ExcelJS.Workbook();
+        const sheet = workbook.addWorksheet('Audit Log');
+        sheet.columns = [
+            { header: 'LOA ID', key: 'loa_id', width: 15 },
+            { header: 'Project Name', key: 'loa_name', width: 40 },
+            { header: 'Action', key: 'mode', width: 20 },
+            { header: 'WBS Elements', key: 'wbs', width: 80 }
+        ];
+
+        logRows.forEach(log => {
+            sheet.addRow({
+                loa_id: log.loa_id, 
+                loa_name: log.loa_name,
+                mode: log.action_mode, 
+                wbs: log.single_wbs
+            });
+        });
+        sheet.getRow(1).font = { bold: true };
+
+        const buffer = await workbook.xlsx.writeBuffer();
+
+        // 🔥 Final check: Admin list fetch logic ensure karein
+        const [admins] = await db.query("SELECT email FROM users WHERE type IN ('admin', 'super_admin') AND is_active = '1'");
+        const adminEmails = admins.map(a => a.email);
+
+        // Mail trigger
+        await mailService.sendMonthlyProjectAuditMail(adminEmails, buffer, reportMonth);
+
+        await db.query("UPDATE cron_config SET last_run_status = 'success', last_run_message = 'Audit report delivered to Admin team', run_count = run_count + 1 WHERE job_name = 'monthly_project_audit'");
+        console.log(`✅ CRON: Audit mail sent to Admin and Super Admin for ${reportMonth}`);
+
+    } catch (error) {
+        console.error('❌ CRON Audit Error:', error.message);
+        await db.query("UPDATE cron_config SET last_run_status = 'error', last_run_message = ? WHERE job_name = 'monthly_project_audit'", [error.message.substring(0, 250)]);
+    }
+};
+
+
 // ==========================================
-// ⏰ INITIALIZATION (Sync + Backup)
+// ⏰ INITIALIZATION (Sync + Backup + Audit)
 // ==========================================
 exports.initCron = async () => {
     try {
-        // --- 1. INITIALIZE DATA SYNC CRON ---
-        if (currentCronJob) {
-            currentCronJob.stop();
-            currentCronJob = null;
+        // --- 1. DATA SYNC CRON ---
+        if (currentCronJob) currentCronJob.stop();
+        const [syncRows] = await db.query("SELECT * FROM cron_config WHERE job_name = 'full_sync'");
+        if (syncRows.length > 0 && syncRows[0].is_enabled) {
+            currentCronJob = cron.schedule(syncRows[0].cron_expression, () => runSync('scheduled_cron'));
+            console.log(`⏰ Data Sync Cron: ${syncRows[0].cron_expression}`);
         }
 
-        const [rows] = await db.query("SELECT * FROM cron_config WHERE job_name = 'full_sync'");
-        if (rows.length > 0) {
-            const config = rows[0];
-            if (config.is_enabled) {
-                currentCronJob = cron.schedule(config.cron_expression, () => {
-                    runSync('scheduled_cron');
-                });
-                console.log(`⏰ Data Sync Cron initialized: ${config.cron_expression}`);
-            } else {
-                console.log('⏰ Data Sync Cron is currently disabled in DB.');
-            }
+        // --- 2. MONTHLY BACKUP CRON ---
+        if (monthlyBackupJob) monthlyBackupJob.stop();
+        const [backupRows] = await db.query("SELECT * FROM cron_config WHERE job_name = 'db_backup'");
+        if (backupRows.length > 0 && backupRows[0].is_enabled) {
+            monthlyBackupJob = cron.schedule(backupRows[0].cron_expression, () => {
+                runDatabaseBackup();
+            });
+            console.log(`⏰ Backup Cron: ${backupRows[0].cron_expression}`);
         }
 
-        // --- 2. INITIALIZE MONTHLY BACKUP CRON ---
-        if (monthlyBackupJob) {
-            monthlyBackupJob.stop();
+        // --- 3. BGDM ALERTS CRON ---
+        if (bgdmAlertJob) bgdmAlertJob.stop();
+        const [alertRows] = await db.query("SELECT * FROM cron_config WHERE job_name = 'bgdm_alerts'");
+        if (alertRows.length > 0 && alertRows[0].is_enabled) {
+            bgdmAlertJob = cron.schedule(alertRows[0].cron_expression, () => runMonthlyAlerts());
+            console.log(`⏰ BGDM Alerts Cron: ${alertRows[0].cron_expression}`);
         }
-        
-        // 0 0 1 * * = At 12:00 AM, on day 1 of the month
-        monthlyBackupJob = cron.schedule('0 0 1 * *', () => {
-            runDatabaseBackup();
-        });
-        console.log(`⏰ Monthly DB Backup Cron initialized: 0 0 1 * * (1st of every month at midnight)`);
+
+        // --- 4. 🔥 FIXED: MONTHLY PROJECT AUDIT CRON ---
+        if (monthlyAuditJob) monthlyAuditJob.stop();
+        const [auditConfig] = await db.query("SELECT * FROM cron_config WHERE job_name = 'monthly_project_audit'");
+        if (auditConfig.length > 0 && auditConfig[0].is_enabled) {
+            // 🔥 Ab ye wahi time pick karega jo aapne DB mein dala hai (*/3 * * * *)
+            monthlyAuditJob = cron.schedule(auditConfig[0].cron_expression, () => {
+                runMonthlyProjectAudit();
+            });
+            console.log(`⏰ Audit Cron initialized: ${auditConfig[0].cron_expression}`);
+        }
 
     } catch (err) {
-        console.error("Cron Init Error:", err);
+        console.error("❌ Cron Init Error:", err.message);
     }
 };
 

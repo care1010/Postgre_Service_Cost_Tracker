@@ -22,37 +22,36 @@ const applyRLS = (type, allowedCustomers, conditions, params) => {
 };
 
 /**
- * 🔥 INTERNAL BACKGROUND SYNC ENGINE
- * Yeh function background mein chalta rahega, user ko wait nahi karna padega.
+ * 🔥 FIXED BACKGROUND SYNC ENGINE (With Timeout Fix)
  */
 const runBackgroundSync = async (processedLoas, projectGroups, created_by) => {
     console.log("🕒 [BACKGROUND]: Processing started for LOAs:", processedLoas);
     const connection = await db.getConnection();
     try {
-        // 1. Get Cost Elements for seeding
-        const [ceRows] = await connection.query("SELECT cost_element FROM master_cost_element");
+        // 🔥 CRITICAL: Disable timeout for this heavy background task
+        await connection.query('SET statement_timeout = 0'); 
+
+        // 1. Get all 17 elements
+        const [ceRows] = await connection.query(`
+            SELECT cost_element FROM master_cost_element
+            UNION 
+            SELECT '11-Overall ASBL'
+        `);
         const costElements = ceRows.map(r => r.cost_element);
 
-        if (costElements.length === 0) {
-            console.error("❌ [BACKGROUND]: No cost elements found in master_cost_element table!");
-            return;
-        }
-
+        // 2. Start seeding process
         for (const loaId of processedLoas) {
-            const project = projectGroups[loaId];
-            
-            // 🔥 FIX: Sirf unhi WBS ko seed karein jo is batch mein naye aaye hain
-            // Agar hum saare wbs_rows bhejenge toh purane WBS ki wajah se duplicate error aa sakti h
-            if (project.wbs_rows && project.wbs_rows.length > 0) {
-                console.log(`🕒 [BACKGROUND]: Seeding CJ74 for LOA ${loaId} (${project.wbs_rows.length} WBS)`);
+            const project = projectGroups[loaId]; 
+            if (project && project.wbs_rows && project.wbs_rows.length > 0) {
+                console.log(`🕒 [BACKGROUND]: Calling Seeding for LOA ${loaId}`);
                 await insertCj74DummyData(connection, project.wbs_rows, costElements);
             }
         }
 
-        // 2. Heavy Task: Dashboard Physical Table Sync
+        // 3. Heavy Dashboard Table Refresh
         console.log("🕒 [BACKGROUND]: Refreshing final_dashboard_table...");
         const uniqueLoaList = [...new Set(processedLoas)];
-        await connection.query("DELETE FROM final_dashboard_table WHERE loa_id IN (?)", [uniqueLoaList]);
+        await connection.query('DELETE FROM final_dashboard_table WHERE loa_id IN (?)', [uniqueLoaList]);
         
         await connection.query(`
             INSERT INTO final_dashboard_table 
@@ -77,6 +76,52 @@ const runBackgroundSync = async (processedLoas, projectGroups, created_by) => {
         console.error("❌ [BACKGROUND ERROR]:", err.message);
     } finally {
         connection.release();
+    }
+};
+
+/**
+ * 🔥 FIXED: Seeding dummy data in CJ74 (7 Columns Matching Schema)
+ */
+const insertCj74DummyData = async (connection, newWbsList, costElements) => {
+    if (newWbsList.length === 0 || costElements.length === 0) return;
+    
+    const currentYear = new Date().getFullYear();
+    const currentMonth = (new Date().getMonth() + 1).toString().padStart(3, '0');
+    let cj74BatchRows = [];
+
+    for (const wbsObj of newWbsList) {
+        const type = (wbsObj.wbs_type || "").trim();
+        const wbsId = (wbsObj.wbs_element || "").trim();
+
+        if (!wbsId) continue;
+
+        if (!EXCLUDED_WBS_TYPES_FOR_CJ74.some(ex => ex.toLowerCase() === type.toLowerCase())) {
+            for (const ce of costElements) {
+                // 🔥 FIXED: 7 Columns mapping to match: (year, per, cost_element, object_1, object_2, object_3, val_in_rc)
+                cj74BatchRows.push([
+                    currentYear, 
+                    currentMonth, 
+                    ce, 
+                    wbsId, // object_1
+                    wbsId, // object_2
+                    wbsId, // object_3
+                    0      // val_in_rc
+                ]);
+            }
+        }
+    }
+
+    if (cj74BatchRows.length > 0) {
+        try {
+            // 🔥 FIXED SQL: Added object_3 column to the list
+            await connection.query(
+                'INSERT INTO cj74_new (year, per, cost_element, object_1, object_2, object_3, val_in_rc) VALUES ? ON CONFLICT DO NOTHING', 
+                [cj74BatchRows]
+            );
+            console.log(`✅ [CJ74_NEW]: Seeded ${cj74BatchRows.length} rows successfully.`);
+        } catch (dbErr) {
+            console.error("❌ [CJ74_NEW SEED ERROR]:", dbErr.message);
+        }
     }
 };
 
@@ -113,54 +158,8 @@ const syncProjectWbs = async (connection, loa_id, loa_name) => {
     return mergedWbsStr;
 };
 
-/**
- * Helper: Seeding dummy data in CJ74
- */
-const insertCj74DummyData = async (connection, newWbsList, costElements) => {
-    if (newWbsList.length === 0 || costElements.length === 0) return;
-    
-    const currentYear = new Date().getFullYear();
-    const currentMonth = (new Date().getMonth() + 1).toString();
-    let cj74BatchRows = [];
 
-    for (const wbsObj of newWbsList) {
-        const type = (wbsObj.wbs_type || "").trim();
-        const wbsId = (wbsObj.wbs_element || "").trim();
 
-        if (!wbsId) continue;
-
-        // Skip Warranty types
-        if (!EXCLUDED_WBS_TYPES_FOR_CJ74.some(ex => ex.toLowerCase() === type.toLowerCase())) {
-            for (const ce of costElements) {
-                cj74BatchRows.push([
-                    currentYear, 
-                    currentMonth, 
-                    ce, 
-                    wbsId, 
-                    wbsId, 
-                    0 // val_in_rc
-                ]);
-            }
-        }
-    }
-
-    if (cj74BatchRows.length > 0) {
-        try {
-            // 🔥 Using VALUES ? which your db.js converts to Postgres bulk format
-            await connection.query(
-                "INSERT INTO cj74_new (year, per, cost_element, object_1, object_2, val_in_rc) VALUES ?", 
-                [cj74BatchRows]
-            );
-            console.log(`✅ [CJ74_NEW]: Seeded ${cj74BatchRows.length} rows.`);
-        } catch (dbErr) {
-            console.error("❌ [CJ74_NEW SEED ERROR]:", dbErr.message);
-        }
-    }
-};
-
-/**
- * 🔥 CORE PROCESSING ENGINE
- */
 /**
  * 🔥 CORE PROCESSING ENGINE (Fixed Scope & Error handling)
  */
@@ -234,9 +233,12 @@ const processProjectData = async (dataGrid, created_by, mode) => {
                 await connection.query("INSERT INTO wbs_loa_id_mapping1 (bu, customer, loa_id, loa_name, wbs_type, single_wbs, wbs_description, merged_wbs, created_by) VALUES ? ", [mRows]);
 
                 // 🔥 NAYA: Log entry (monthYear ab defined hai)
+                // 🔥 FIXED: Added 'single_wbs' column and '?' placeholder (Total 7)
+                const wbsListStr = project.wbs_rows.map(r => r.wbs_element).join(', '); // WBS list prepare ki
+
                 await connection.query(
-                    `INSERT INTO project_activity_logs (user_email, loa_id, loa_name, action_mode, wbs_count, month_year) VALUES (?, ?, ?, ?, ?, ?)`,
-                    [created_by, loaId, project.loa_name, 'New Project', project.wbs_rows.length, monthYear]
+                    `INSERT INTO project_activity_logs (user_email, loa_id, loa_name, action_mode, wbs_count, month_year, single_wbs) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+                    [created_by, loaId, project.loa_name, 'New Project', project.wbs_rows.length, monthYear, wbsListStr]
                 );
                 
                 processedLoas.push(loaId);
@@ -264,9 +266,12 @@ const processProjectData = async (dataGrid, created_by, mode) => {
                 await syncProjectWbs(connection, loaId, project.loa_name);
 
                 // 🔥 NAYA: Log entry (monthYear ab defined hai)
+                    // 🔥 FIXED: Added 'single_wbs' column and '?' placeholder (Total 7)
+                    const newWbsListStr = newWbsToMap.map(r => r.wbs_element).join(', '); // Only newly added WBS
+
                     await connection.query(
-                        `INSERT INTO project_activity_logs (user_email, loa_id, loa_name, action_mode, wbs_count, month_year) VALUES (?, ?, ?, ?, ?, ?)`,
-                        [created_by, loaId, project.loa_name, 'Added WBS', newWbsToMap.length, monthYear]
+                        `INSERT INTO project_activity_logs (user_email, loa_id, loa_name, action_mode, wbs_count, month_year, single_wbs) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+                        [created_by, loaId, project.loa_name, 'Added WBS', newWbsToMap.length, monthYear, newWbsListStr]
                     );
                 
                 processedLoas.push(loaId);
@@ -390,59 +395,59 @@ exports.getAddProjectOptions = async (req, res) => {
 // ----------------------------------------------------------------------------
 //          Keep this code commented to add new cost elements in CJ74 sheet
 // ----------------------------------------------------------------------------
-// exports.testPtdSeeding = async (req, res) => {
-//     let connection;
-//     try {
-//         connection = await db.getConnection();
-//         console.log("🛠️ Starting Multi-DB Smart Seeding (Fixed Data Types)...");
+exports.testPtdSeeding = async (req, res) => {
+    let connection;
+    try {
+        connection = await db.getConnection();
+        console.log("🛠️ Starting Multi-DB Smart Seeding (Fixed Data Types)...");
  
-//         // Javascript se Year aur Month nikalna sabse safe h (Integer vs String error nahi aayega)
-//         const currentYear = new Date().getFullYear();
-//         const currentMonth = (new Date().getMonth() + 1).toString();
+        // Javascript se Year aur Month nikalna sabse safe h (Integer vs String error nahi aayega)
+        const currentYear = new Date().getFullYear();
+        const currentMonth = (new Date().getMonth() + 1).toString();
  
-//         const sql = `
-//             INSERT INTO cj74_new (year, per, object_1, object_2, cost_element, val_in_rc)
-//             SELECT
-//                 ${currentYear},
-//                 '${currentMonth}',
-//                 ideal.single_wbs,
-//                 ideal.single_wbs,
-//                 ideal.ce_code,
-//                 0
-//             FROM (
-//                 SELECT DISTINCT
-//                     c.object_1 AS single_wbs,
-//                     ce_union.cost_element AS ce_code
-//                 FROM cj74_new c
-//                 CROSS JOIN (
-//                     SELECT cost_element FROM master_cost_element
-//                     UNION
-//                     SELECT '11-Overall ASBL'
-//                 ) AS ce_union
-//                 WHERE c.object_1 IS NOT NULL
-//             ) AS ideal
-//             WHERE NOT EXISTS (
-//                 SELECT 1 FROM cj74_new actual
-//                 WHERE actual.object_1 = ideal.single_wbs
-//                 AND actual.cost_element = ideal.ce_code
-//             )
-//         `;
+        const sql = `
+            INSERT INTO cj74_new (year, per, object_1, object_2, cost_element, val_in_rc)
+            SELECT
+                ${currentYear},
+                '${currentMonth}',
+                ideal.single_wbs,
+                ideal.single_wbs,
+                ideal.ce_code,
+                0
+            FROM (
+                SELECT DISTINCT
+                    c.object_1 AS single_wbs,
+                    ce_union.cost_element AS ce_code
+                FROM cj74_new c
+                CROSS JOIN (
+                    SELECT cost_element FROM master_cost_element
+                    UNION
+                    SELECT '11-Overall ASBL'
+                ) AS ce_union
+                WHERE c.object_1 IS NOT NULL
+            ) AS ideal
+            WHERE NOT EXISTS (
+                SELECT 1 FROM cj74_new actual
+                WHERE actual.object_1 = ideal.single_wbs
+                AND actual.cost_element = ideal.ce_code
+            )
+        `;
  
-//         const [result] = await connection.query(sql);
-//         const insertedRows = result.affectedRows || result.rowCount || 0;
+        const [result] = await connection.query(sql);
+        const insertedRows = result.affectedRows || result.rowCount || 0;
  
-//         console.log(`✅ Success! Data Type issue resolved. Added ${insertedRows} rows.`);
+        console.log(`✅ Success! Data Type issue resolved. Added ${insertedRows} rows.`);
  
-//         res.status(200).json({
-//             success: true,
-//             message: "17-Category Sync Complete (Multi-DB Safe)!",
-//             new_rows_inserted: insertedRows
-//         });
+        res.status(200).json({
+            success: true,
+            message: "17-Category Sync Complete (Multi-DB Safe)!",
+            new_rows_inserted: insertedRows
+        });
  
-//     } catch (error) {
-//         console.error("❌ Seeding Error:", error);
-//         res.status(500).json({ error: error.message });
-//     } finally {
-//         if (connection) connection.release();
-//     }
-// };
+    } catch (error) {
+        console.error("❌ Seeding Error:", error);
+        res.status(500).json({ error: error.message });
+    } finally {
+        if (connection) connection.release();
+    }
+};

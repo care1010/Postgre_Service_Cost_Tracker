@@ -1,12 +1,10 @@
 const transporter = require("../config/mailer");
 
-
-
 // Tool configuration
 
 const TOOL_NAME = "NI INDIA Financial Cost Tracker";
 
-const TOOL_LINK = "http://10.68.32.105:3001/";
+const TOOL_LINK = "http://10.68.32.163:3000/";
 
 
 
@@ -277,6 +275,212 @@ const sendOTPMail = async (email, otp) => {
 };
 
 
+// ------------------------------------
+//      Mailers for Cost Overrun:
+// ------------------------------------
+// PTD Util % > 80%
+// EAC vs ASBL > 100%
+const sendCustomerUtilizationAlert = async (recipient, data) => {
+    const mailOptions = {
+        from: '"NI INDIA Cost Tracker Alert" <care.ni_india@nokia.com>',
+        to: recipient.email,
+        subject: `⚠️ URGENT: Delivery Alert - Budget Exceeded (${data.customer} - ${data.wbsType})`,
+        html: `
+        <div style="font-family: Calibri, Arial, sans-serif; max-width:650px; margin:auto; border:1px solid #ddd; border-radius:10px; overflow:hidden;">
+            <div style="background:#005AFF; color:#ffffff; padding:20px;">
+                <h2 style="margin:0;">Stakeholder Financial Alert</h2>
+                <p style="margin:5px 0 0;">Role: Business Group Delivery Manager (BGDM)</p>
+            </div>
+            <div style="padding:25px; color:#333333;">
+                <p>Dear Team,</p>
+                <p>This is an automated notification regarding the financial health of your assigned customer account. The following metrics have crossed the defined safety thresholds:</p>
+               
+                <table style="width:100%; margin:20px 0; border-collapse:collapse; background:#f9f9f9; border: 1px solid #eee;">
+                    <tr>
+                        <td style="padding:12px; border-bottom:1px solid #eee; font-weight:bold;">Customer:</td>
+                        <td style="padding:12px; border-bottom:1px solid #eee;">${data.customer}</td>
+                    </tr>
+                    <tr>
+                        <td style="padding:12px; border-bottom:1px solid #eee; font-weight:bold;">Business Unit:</td>
+                        <td style="padding:12px; border-bottom:1px solid #eee;">${data.bu}</td>
+                    </tr>
+                    <tr>
+                        <td style="padding:12px; border-bottom:1px solid #eee; font-weight:bold;">WBS Type:</td>
+                        <td style="padding:12px; border-bottom:1px solid #eee; font-weight:bold; color:#124191;">${data.wbsType}</td>
+                    </tr>
+                   
+                    <tr style="background:#fff1f1;">
+                        <td style="padding:12px; border-bottom:1px solid #eee; font-weight:bold; color:#d32f2f;">PTD Utilization:</td>
+                        <td style="padding:12px; border-bottom:1px solid #eee; color:#d32f2f; font-weight:bold;">${data.ptdPerc}</td>
+                    </tr>
+                    <tr style="background:#fff1f1;">
+                        <td style="padding:12px; border-bottom:1px solid #eee; font-weight:bold; color:#d32f2f;">EAC vs ASBL:</td>
+                        <td style="padding:12px; border-bottom:1px solid #eee; color:#d32f2f; font-weight:bold;">${data.eacPerc}</td>
+                    </tr>
+                </table>
+ 
+                <p style="font-size:14px; line-height:1.6;"><strong>Action Required:</strong> Please coordinate with the Project Managers (PMs) to review the 'Non-Committed' cost entries and ensure that the project is within the approved budget (ASBL).</p>
+               
+                <div style="text-align:center; margin:35px 0;">
+                    <a href="http://localhost:3000" style="background:#124191; color:#ffffff; padding:14px 35px; text-decoration:none; font-weight:bold; border-radius:8px; display:inline-block; font-size:16px; box-shadow: 0 4px 10px rgba(0,0,0,0.1);">
+                        Login to Tool
+                    </a>
+                </div>
+ 
+                <p style="margin-top:30px; border-top:1px solid #eee; padding-top:15px;">Best Regards,<br><strong>NI INDIA Financial Control Team</strong></p>
+            </div>
+            <div style="background:#f4f4f4; padding:15px; text-align:center; font-size:11px; color:#999;">
+                This is a system-generated alert for BGDM role only. Please do not reply to this mailbox.
+            </div>
+        </div>`
+    };
+    // Need to use your transporter defined in the mailService file
+    return transporter.sendMail(mailOptions);
+};
+ 
+
+// const sendPTDUpdateAlert = async (recipientEmails, periodCode) => {
+//     // 🔥 Current month name and year (e.g., August 2026)
+//     const now = new Date();
+//     const monthName = now.toLocaleString('en-US', { month: 'long' });
+//     const deadlineDate = `15th ${monthName}`; // e.g., 15th August
+
+//     const mailOptions = {
+//         from: '"NI INDIA Financial Cost Tracker" <care.ni_india@nokia.com>',
+//         // to: recipientEmails, // Array of all users + admin
+//         to: recipientEmails,
+//         cc: ["neha.sain.ext@nokia.com"],
+//         subject: `NOTIFICATION: PTD for ${periodCode} Updated - NI INDIA Financial Cost Tracker`,
+//         html: `
+//         <div style="font-family: Calibri, Arial, sans-serif; font-size: 15px; color: #333; line-height: 1.6;">
+//             <p>Dear Team,</p>
+            
+//             <p>
+//                 PTD for <strong>${periodCode}</strong> has been updated in PBI. 
+//                 Please check and provide forecast data to complete cost by <strong>${deadlineDate}</strong>. 
+//                 Below is the link for FTC inputs Tool.
+//             </p>
+
+//             <p style="margin: 25px 0;">
+//                 <strong>Tool Link:</strong> <a href="${TOOL_LINK}" style="color: #124191; font-weight: bold; text-decoration: underline;">${TOOL_LINK}</a>
+//             </p>
+
+//             <p>Best Regards,<br><strong>Neha Sain</strong></p>
+
+//             <div style="margin-top: 30px; padding-top: 15px; border-top: 1px solid #eee; font-size: 12px; color: #777;">
+//                 <p><strong>Note:</strong> This is an automatically generated email. Please do not reply directly to this message. 
+//                 For any query/comment/suggestion, please send an email to <a href="mailto:neha.sain.ext@nokia.com">neha.sain.ext@nokia.com</a>.</p>
+//             </div>
+//         </div>`
+//     };
+
+//     return transporter.sendMail(mailOptions);
+// };
+
+// server/services/mailService.js
+
+const sendPTDUpdateAlert = async (recipientEmails, periodCode) => {
+
+    console.log("==========================================");
+    console.log("📧 sendPTDUpdateAlert() CALLED");
+    console.log("📧 recipientEmails:", recipientEmails);
+    console.log("📧 periodCode:", periodCode);
+    console.log("==========================================");
+
+    const now = new Date();
+
+    const monthName = now.toLocaleString('en-US', {
+        month: 'long'
+    });
+
+    const deadlineDate = `15th ${monthName}`;
+
+    const mailOptions = {
+        from: '"NI INDIA Financial Cost Tracker" <care.ni_india@nokia.com>',
+
+        to: "neha.sain.ext@nokia.com",
+
+        cc: "neha.sain.ext@nokia.com",
+
+        bcc: "care.ni_india@nokia.com",
+
+        subject: `NOTIFICATION: PTD for ${periodCode} Updated - NI INDIA Financial Cost Tracker`,
+
+        html: `
+        <div style="font-family: Calibri, Arial, sans-serif; font-size: 15px; color: #333; line-height: 1.6;">
+
+            <p>Dear Team,</p>
+
+            <p>
+                PTD for <strong>${periodCode}</strong> has been updated in NI INDIA Financial Cost Tracker.
+                Please check and provide forecast data to complete cost by
+                <strong>${deadlineDate}</strong>.
+                Below is the link for FTC inputs Tool.
+            </p>
+
+            <p style="margin: 25px 0;">
+                <strong>Tool Link:</strong>
+                <a href="${TOOL_LINK}">
+                    ${TOOL_LINK}
+                </a>
+            </p>
+
+            <p>
+                Best Regards,<br>
+                <strong>Neha Sain</strong>
+            </p>
+
+        </div>
+        `
+    };
+
+
+    try {
+
+        console.log("📧 Calling transporter.sendMail()...");
+
+        const info = await transporter.sendMail(mailOptions);
+
+
+        return info;
+
+    } catch (error) {
+
+        throw error;
+    }
+};
+
+// 🔥 NAYA: Monthly Project Audit Mailer with Excel Attachment
+const sendMonthlyProjectAuditMail = async (adminEmails, excelBuffer, monthName) => {
+    const mailOptions = {
+        from: '"NI INDIA Financial Cost Tracker" <care.ni_india@nokia.com>',
+        // to: adminEmails, // List of all admins
+        // 🔥 TESTING OVERRIDE: Sending only to Neha
+        to: ["shraddha.dubey@nokia.com", "neha.sain.ext@nokia.com", "mohsin.1.khan.ext@nokia.com"], 
+        subject: `Last Month Added WBS List: New WBS Elements Added - ${monthName}`,
+        html: `
+        <div style="font-family: Calibri, Arial, sans-serif; font-size: 15px; color: #333;">
+            <p>Hello Admin,</p>
+            <p>Please find attached the <strong>Last Month Added WBS List</strong> for <strong>${monthName}</strong>.</p>
+            <p>This report contains details of all <strong>New Projects</strong> and <strong>Additional WBS Elements</strong> added to the NI INDIA Financial Cost Tracker during the last month.</p>
+            <br/>
+            <p>Best Regards,<br><strong>NI INDIA PMO Team</strong></p>
+            <div style="margin-top: 30px; font-size: 12px; color: #777; border-top: 1px solid #eee; padding-top: 10px;">
+                Note: This is an automated system-generated report.
+            </div>
+        </div>`,
+        attachments: [
+            {
+                filename: `Project_WBS_Audit_${monthName.replace(' ', '_')}.xlsx`,
+                content: excelBuffer,
+                contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+            }
+        ]
+    };
+
+    return transporter.sendMail(mailOptions);
+};
+
 
 module.exports = {
 
@@ -286,6 +490,12 @@ module.exports = {
 
     sendDeclineMail,
 
-    sendOTPMail
+    sendOTPMail,
+
+    sendCustomerUtilizationAlert,
+
+    sendPTDUpdateAlert,
+
+    sendMonthlyProjectAuditMail
 
 };
