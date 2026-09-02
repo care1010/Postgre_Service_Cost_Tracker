@@ -4,9 +4,14 @@ const dataController = require('./dataController');
 const { exec } = require('child_process');
 const fs = require('fs');
 const path = require('path');
+const ExcelJS = require('exceljs');
+const mailService = require('../services/mailService');
 
+// Global job references to prevent "not defined" errors
 let currentCronJob = null;
-let monthlyBackupJob = null; // Backup cron job reference
+let monthlyBackupJob = null;
+let bgdmAlertJob = null;
+let monthlyAuditJob = null;
 let isSyncing = false;
 let autoSyncTimeout = null;
 
@@ -104,21 +109,19 @@ const runMonthlyProjectAudit = async () => {
     try {
         await db.query("UPDATE cron_config SET last_run_at = NOW(), last_run_status = 'running' WHERE job_name = 'monthly_project_audit'");
 
-        // 1. Get Previous Month name
         const now = new Date();
         now.setMonth(now.getMonth() - 1);
         const reportMonth = now.toLocaleString('en-US', { month: 'long', year: 'numeric' });
 
-        // 2. Fetch logs from previous month (Postgres Logic)
+        // SQL: Fetch August data if today is September
         const [logRows] = await db.query(`
-            SELECT user_email, loa_id, loa_name, action_mode, wbs_count, single_wbs, created_at 
+            SELECT loa_id, loa_name, action_mode, single_wbs, created_at 
             FROM project_activity_logs 
             WHERE created_at >= date_trunc('month', current_date - interval '1 month')
               AND created_at < date_trunc('month', current_date)
             ORDER BY created_at ASC
         `);
 
-        // 3. Generate Excel
         const workbook = new ExcelJS.Workbook();
         const sheet = workbook.addWorksheet('Audit Log');
         sheet.columns = [
@@ -129,29 +132,21 @@ const runMonthlyProjectAudit = async () => {
         ];
 
         logRows.forEach(log => {
-            sheet.addRow({
-                loa_id: log.loa_id, 
-                loa_name: log.loa_name,
-                mode: log.action_mode, 
-                wbs: log.single_wbs
-            });
+            sheet.addRow({ loa_id: log.loa_id, loa_name: log.loa_name, mode: log.action_mode, wbs: log.single_wbs });
         });
         sheet.getRow(1).font = { bold: true };
 
         const buffer = await workbook.xlsx.writeBuffer();
-
-        // 🔥 Final check: Admin list fetch logic ensure karein
         const [admins] = await db.query("SELECT email FROM users WHERE type IN ('admin', 'super_admin') AND is_active = '1'");
         const adminEmails = admins.map(a => a.email);
 
-        // Mail trigger
-        await mailService.sendMonthlyProjectAuditMail(adminEmails, buffer, reportMonth);
-
-        await db.query("UPDATE cron_config SET last_run_status = 'success', last_run_message = 'Audit report delivered to Admin team', run_count = run_count + 1 WHERE job_name = 'monthly_project_audit'");
-        console.log(`✅ CRON: Audit mail sent to Admin and Super Admin for ${reportMonth}`);
-
+        if (adminEmails.length > 0) {
+            await mailService.sendMonthlyProjectAuditMail(adminEmails, buffer, reportMonth);
+            await db.query("UPDATE cron_config SET last_run_status = 'success', last_run_message = 'Audit report delivered', run_count = run_count + 1 WHERE job_name = 'monthly_project_audit'");
+            console.log(`✅ Audit mail sent for ${reportMonth}`);
+        }
     } catch (error) {
-        console.error('❌ CRON Audit Error:', error.message);
+        console.error('❌ Audit Error:', error.message);
         await db.query("UPDATE cron_config SET last_run_status = 'error', last_run_message = ? WHERE job_name = 'monthly_project_audit'", [error.message.substring(0, 250)]);
     }
 };
@@ -190,13 +185,11 @@ exports.initCron = async () => {
 
         // --- 4. 🔥 FIXED: MONTHLY PROJECT AUDIT CRON ---
         if (monthlyAuditJob) monthlyAuditJob.stop();
-        const [auditConfig] = await db.query("SELECT * FROM cron_config WHERE job_name = 'monthly_project_audit'");
-        if (auditConfig.length > 0 && auditConfig[0].is_enabled) {
-            // 🔥 Ab ye wahi time pick karega jo aapne DB mein dala hai (*/3 * * * *)
-            monthlyAuditJob = cron.schedule(auditConfig[0].cron_expression, () => {
-                runMonthlyProjectAudit();
-            });
-            console.log(`⏰ Audit Cron initialized: ${auditConfig[0].cron_expression}`);
+        // 4. Audit Job (1st of month @ 12 PM - fetched from DB)
+        const [auConf] = await db.query("SELECT * FROM cron_config WHERE job_name = 'monthly_project_audit'");
+        if (auConf.length > 0 && auConf[0].is_enabled) {
+            monthlyAuditJob = cron.schedule(auConf[0].cron_expression, () => runMonthlyProjectAudit());
+            console.log(`⏰ Audit Cron active: ${auConf[0].cron_expression}`);
         }
 
     } catch (err) {
