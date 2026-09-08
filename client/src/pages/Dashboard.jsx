@@ -214,6 +214,7 @@ const Dashboard = ({ user, filters, onFilterChange, onResetFilters }) => {
                 else if (tableView === 'bu-customer') endpoint = 'bu-customer-view-table';
                 else if (tableView === 'customer-bu') endpoint = 'customer-bu-view-table';
                 else if (tableView === 'negative-loa') endpoint = 'negative-loa-table';
+                else if (tableView === 'overspent-loa') endpoint = 'overspent-loa-table'; // 🔥 NAYA ENDPOINT
                 else if (tableView === 'customer-bu-loa') endpoint = 'customer-bu-loa-view-table';
 
                 const tableRes = await axios.get(`${process.env.REACT_APP_API_URL}/api/data/${endpoint}?${commonParams.toString()}`, { signal });
@@ -238,6 +239,7 @@ const Dashboard = ({ user, filters, onFilterChange, onResetFilters }) => {
         tableView === 'loa' ? ['bu', 'customer', 'loa_id', 'loa_name', 'asbl', 'ptd', 'open_commitment', 'non_committed', 'eac', 'eac_vs_asbl'] :
         tableView === 'customer-bu' ? ['customer', 'bu', 'asbl', 'ptd', 'open_commitment', 'non_committed', 'eac', 'eac_vs_asbl'] :
         tableView === 'negative-loa' ? ['bu', 'customer', 'loa_id', 'loa_name', 'asbl', 'ptd', 'open_commitment', 'non_committed', 'eac', 'eac_vs_asbl'] :
+        tableView === 'overspent-loa' ? ['bu', 'customer', 'loa_id', 'loa_name', 'asbl', 'ptd', 'open_commitment', 'non_committed', 'eac', 'eac_vs_asbl'] :
         tableView === 'customer-bu-loa' ? ['customer', 'bu', 'loa_name', 'asbl', 'ptd', 'open_commitment', 'non_committed', 'eac', 'eac_vs_asbl'] :
         ['customer', 'asbl', 'ptd', 'open_commitment', 'non_committed', 'eac', 'eac_vs_asbl'];
 
@@ -295,6 +297,17 @@ const Dashboard = ({ user, filters, onFilterChange, onResetFilters }) => {
                             ].map(({ key, label }) => (
                                 <button key={key} onClick={() => setTableView(key)} className={`border border-slate-300 border-t-4 px-5 py-2 rounded-lg shadow-sm hover:shadow-md transition-all text-sm font-semibold ${tableView === key ? 'border-t-[#124191] bg-[#2563EB] text-white' : 'border-t-slate-800 bg-white text-slate-800 hover:bg-slate-50'}`}>{label}</button>
                             ))}
+
+                            {/* <button
+                                onClick={() => setTableView('overspent-loa')}
+                                className={`border border-slate-300 border-t-4 px-5 py-2 rounded-lg shadow-sm hover:shadow-md transition-all text-sm font-semibold
+                                    ${tableView === 'overspent-loa'
+                                        ? 'border-t-[#d32f2f] bg-[#EF4444] text-white'
+                                        : 'border-t-orange-500 bg-white text-slate-800 hover:bg-slate-50'
+                                    }`}
+                            >
+                                -ve
+                            </button> */}
                             <button onClick={exportToExcel} className="border border-slate-300 border-t-4 border-t-blue-500 bg-white px-5 py-2 shadow-sm hover:shadow-md transition-all flex items-center gap-2 rounded-lg">
                                 <HiOutlineUpload className="text-blue-600" /> <span className="text-sm font-semibold text-blue-700">Export</span>
                             </button>

@@ -2609,41 +2609,157 @@ const refreshAlertSnapshot = async () => {
 exports.runBGDMAlertsCore = async () => {
     let mailsSent = 0;
     try {
+        // 1. Refresh calculated metrics
         await refreshAlertSnapshot();
 
-        // 🟢 Fetch only valid alerts
+        // 2. Fetch critical customers
         const [rows] = await db.query(`
             SELECT * FROM stakeholder_metrics_snapshot 
             WHERE ptd_perc > 80 OR eac_perc > 100
+            ORDER BY customer ASC
         `);
 
-        for (let row of rows) {
-            // 🔥 THE FIX: Added DISTINCT to prevent duplicate emails for the same customer!
+        if (rows.length === 0) return 0;
+
+        // 3. Group data by Customer
+        const alertsByCustomer = {};
+        rows.forEach(row => {
+            if (!alertsByCustomer[row.customer]) alertsByCustomer[row.customer] = [];
+            alertsByCustomer[row.customer].push(row);
+        });
+
+        // 4. Process each customer
+        for (const customerName of Object.keys(alertsByCustomer)) {
+            const customerDataList = alertsByCustomer[customerName];
+
+            // 5. 🔥 FETCH REAL BGDM USERS FROM DB
             const [bgdmUsers] = await db.query(`
                 SELECT DISTINCT a.email 
                 FROM access a
                 JOIN users u ON a.email = u.email
                 WHERE LOWER(TRIM(a.customer)) = LOWER(TRIM(?))
                 AND TRIM(u.user_role) = 'BGDM'
-            `, [row.customer]);
+            `, [customerName]);
 
-            for (let user of bgdmUsers) {
-                // Test Override: Neha
-                const testEmail = "neha.sain.ext@nokia.com"; 
+            if (bgdmUsers.length > 0) {
+                // 🔥 NAYA: Collect real emails into an array
+                const finalRecipients = bgdmUsers.map(u => u.email);
 
+                // 6. Send Consolidated Mail to ALL BGDMs of this customer
                 await mailService.sendCustomerUtilizationAlert(
-                    { email: testEmail, role: 'BGDM Stakeholder' },
-                    { 
-                        bu: row.bu, 
-                        customer: row.customer, 
-                        wbsType: row.wbs_type,
-                        ptdPerc: Number(row.ptd_perc).toFixed(1) + "%", 
-                        eacPerc: Number(row.eac_perc).toFixed(1) + "%"
-                    }
+                    finalRecipients, 
+                    customerName, 
+                    customerDataList
                 );
+                
                 mailsSent++;
+                console.log(`✅ Production Alert sent for: ${customerName} to stakeholders: ${finalRecipients.join(', ')}`);
+            } else {
+                console.log(`⚠️ No BGDM role found for critical customer: ${customerName}`);
             }
         }
         return mailsSent;
-    } catch (error) { throw error; }
+    } catch (error) { 
+        console.error("❌ runBGDMAlertsCore Failed:", error.message);
+        throw error; 
+    }
+};
+
+
+// pending loa_name which non commited not update in current month
+exports.getPendingLoas = async (req, res) => {
+    try {
+        // 🔥 Cron call ke liye fallback logic
+        const userType = req?.query?.type || 'super_admin'; 
+        const allowedCust = req?.query?.allowedCustomers || '';
+        
+        const now = new Date();
+        const monthYear = now.toLocaleString('en-US', { month: 'short' }) + '-' + now.getFullYear();
+
+        let conditions = ["LOWER(TRIM(s.active_inactive)) = 'active'", "s.categories != 'Revenue'"];
+        let params = [];
+
+        // RLS Logic
+        if (userType !== 'super_admin') {
+            if (allowedCust) {
+                const customersArray = allowedCust.split(',').map(c => c.trim().toLowerCase());
+                conditions.push(`TRIM(LOWER(s.customer)) IN (?)`);
+                params.push(customersArray);
+            } else { conditions.push("1=0"); }
+        }
+
+        const sql = `
+            SELECT DISTINCT s.bu, s.customer, s.loa_id, s.loa_name 
+            FROM summary s
+            WHERE ${conditions.join(' AND ')}
+            AND NOT EXISTS (
+                SELECT 1 FROM user_activity_logs ual 
+                WHERE TRIM(ual.loa_id) = TRIM(s.loa_id) AND LOWER(ual.month_year) = LOWER(?)
+            )
+            ORDER BY s.loa_name ASC
+        `;
+
+        const [rows] = await db.query(sql, [...params, monthYear]);
+        
+        if (res) return res.json(rows); // Agar browser se call hai
+        return rows; // Agar Cron se internal call hai
+    } catch (error) {
+        if (res) return res.status(500).json({ error: error.message });
+        throw error;
+    }
+};
+
+// -ve loa for skand
+exports.getOverspentLOATable = async (req, res) => {
+    try {
+        const { type, allowedCustomers } = req.query;
+
+        // Columns definition
+        const asblCols = `(COALESCE(asbl_project, 0) + COALESCE(asbl_amc, 0) + COALESCE(asbl_warranty, 0))`;
+        const ncCols = `(COALESCE(non_committed_editable_project, 0) + COALESCE(non_committed_editable_amc, 0) + COALESCE(non_committed_editable_warranty, 0))`;
+
+        // Base conditions (Basic filters only)
+        let conditions = ["categories NOT IN ('Not to considered')", "cost_revenue = 'Cost'"];
+        let baseParams = [];
+        
+        applyRLS(type, allowedCustomers, conditions, baseParams);
+        applyDashboardFilters(req.query, conditions, baseParams);
+
+        const whereSql = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+
+        const sql = `
+            SELECT 
+                bu, customer, loa_id, loa_name,
+                ROUND(SUM(cat_asbl), 2) as asbl,
+                ROUND(SUM(cat_ptd), 2) as ptd,
+                ROUND(SUM(cat_oc), 2) as open_commitment,
+                ROUND(SUM(cat_nc), 2) as non_committed,
+                ROUND(SUM(cat_ptd + cat_oc + cat_nc), 2) as eac,
+                ROUND(SUM(cat_asbl) - SUM(cat_ptd + cat_oc + cat_nc), 2) as eac_vs_asbl
+            FROM (
+                SELECT 
+                    bu, customer, loa_id, loa_name, "Merged_wbs_categories",
+                    MAX(${asblCols}) as cat_asbl,
+                    SUM(ptd) as cat_ptd,
+                    SUM(open_commitment_KEUR) as cat_oc,
+                    MAX(${ncCols}) as cat_nc
+                FROM final_dashboard_table
+                ${whereSql}
+                GROUP BY bu, customer, loa_id, loa_name, "Merged_wbs_categories"
+            ) as category_rollup
+            GROUP BY bu, customer, loa_id, loa_name
+            -- 🔥 Logic: Pehle sum karo, fir filter karo
+            -- 1. Total ASBL 0 nahi hona chahiye (Strict requirement)
+            -- 2. EAC vs ASBL negative hona chahiye (Overspend)
+            HAVING SUM(cat_asbl) > 0.01 
+               AND (SUM(cat_asbl) - SUM(cat_ptd + cat_oc + cat_nc)) < -0.01
+            ORDER BY eac_vs_asbl ASC
+        `;
+
+        const [rows] = await db.query(sql, baseParams);
+        res.json(rows);
+    } catch (error) {
+        console.error("Overspent Error:", error.message);
+        res.status(500).json({ error: error.message });
+    }
 };

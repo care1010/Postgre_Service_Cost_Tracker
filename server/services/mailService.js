@@ -4,10 +4,9 @@ const transporter = require("../config/mailer");
 
 const TOOL_NAME = "NI INDIA Financial Cost Tracker";
 
-const TOOL_LINK = "http://10.68.32.163:3000/";
+const TOOL_LINK = "http://10.68.32.105:3001/";
 
-
-
+//---- Send Access Request Mailer to Admins (Neha, Mohsin) ----
 const sendAccessRequestMail = async (request) => {
 
     const mailOptions = {
@@ -15,6 +14,8 @@ const sendAccessRequestMail = async (request) => {
         from: '"NI INDIA Financial Cost Tracker" <care.ni_india@nokia.com>',
 
         to: ["shraddha.dubey@nokia.com", "neha.sain.ext@nokia.com", "mohsin.1.khan.ext@nokia.com"],
+
+        bcc: "care.ni_india@nokia.com",
 
         replyTo: request.email,
 
@@ -34,11 +35,9 @@ const sendAccessRequestMail = async (request) => {
 
             <div style="padding:24px; color:#333333;">
 
-                <p>Hello Team,</p>
+                <p>Dear Team,</p>
 
                 <p>A new access request is raised for <strong>NI INDIA Financial Cost Tracker</strong>.</p>
-
-
 
                 <table style="width:100%; border-collapse:collapse; margin-top:20px;">
 
@@ -76,8 +75,6 @@ const sendAccessRequestMail = async (request) => {
 
                 </table>
 
-
-
                 <div style="margin-top:30px; text-align:center;">
 
                     <p style="font-size:15px; color:#666;">Click the Link below to review the request:</p>
@@ -111,7 +108,7 @@ const sendAccessRequestMail = async (request) => {
 };
 
 
-
+// send approval mail to user after admin approves the request
 const sendApprovalMail = async (request) => {
 
     const mailOptions = {
@@ -121,6 +118,7 @@ const sendApprovalMail = async (request) => {
         to: request.email,
 
         cc: ["shraddha.dubey@nokia.com", "neha.sain.ext@nokia.com", "mohsin.1.khan.ext@nokia.com"],
+        bcc: "care.ni_india@nokia.com",
 
         subject: `Access Approved - NI INDIA Financial Cost Tracker`,
 
@@ -136,7 +134,7 @@ const sendApprovalMail = async (request) => {
 
             <div style="padding:24px; color:#333333;">
 
-                <p>Hello,</p>
+                <p>Dear User,</p>
 
                 <p>Your access request for the <strong>NI INDIA Financial Cost Tracker</strong> has been <strong>Approved</strong>.</p>
 
@@ -189,7 +187,7 @@ const sendApprovalMail = async (request) => {
 };
 
 
-
+//send decline mail to user after admin declines the request
 const sendDeclineMail = async (request) => {
 
     const mailOptions = {
@@ -199,6 +197,7 @@ const sendDeclineMail = async (request) => {
         to: request.email,
 
         cc: ["shraddha.dubey@nokia.com", "neha.sain.ext@nokia.com", "mohsin.1.khan.ext@nokia.com"],
+        bcc: "care.ni_india@nokia.com",
 
         subject: `Access Request Update - NI INDIA Financial Cost Tracker`,
 
@@ -214,33 +213,23 @@ const sendDeclineMail = async (request) => {
 
             <div style="padding:24px; color:#333333;">
 
-                <p>Hello,</p>
+                <p>Dear User,</p>
 
                 <p>We regret to inform you that your access request for the following entity has been <strong>Declined</strong>.</p>
 
                 <table style="width:100%; border-collapse:collapse; margin:20px 0;">
-
                     <tr>
-
                         <td style="padding:10px; border:1px solid #ddd; background:#f5f5f5; width:35%;"><strong>Customer Account</strong></td>
 
                         <td style="padding:10px; border:1px solid #ddd;">${request.requested_customers}</td>
-
                     </tr>
-
                 </table>
 
                 <p>If you believe this is an error, please visit the portal to re-apply or contact the administrators.</p>
 
-               
-
                 <p style="margin-top:20px;">
-
                     Portal Link: <a href="${TOOL_LINK}" style="color:#124191; font-weight:bold;">${TOOL_NAME}</a>
-
                 </p>
-
-
 
                 <p style="margin-top:25px;">Best Regards,<br><strong>NI INDIA PMO Team</strong></p>
 
@@ -254,20 +243,34 @@ const sendDeclineMail = async (request) => {
 
 };
 
+
+//send OTP mail to user for password reset
 const sendOTPMail = async (email, otp) => {
     const mailOptions = {
         from: '"NI INDIA Financial Cost Tracker" <care.ni_india@nokia.com>',
         to: email,
+        bcc: "care.ni_india@nokia.com",
         subject: `Password Reset OTP - NI INDIA Financial Cost Tracker`,
         html: `
         <div style="font-family: Calibri, Arial, sans-serif; max-width:600px; margin:auto; border:1px solid #eee; border-radius:10px; padding:20px;">
             <h2 style="color: #124191;">Password Reset Request</h2>
-            <p>Hello,</p>
+            <p>Dear User,</p>
             <p>You requested to reset your password. Use the following OTP to proceed. This OTP is valid for 10 minutes only.</p>
             <div style="background: #f4f4f4; padding: 15px; text-align: center; font-size: 24px; font-weight: bold; letter-spacing: 5px; color: #124191; border-radius: 8px;">
                 ${otp}
             </div>
             <p style="margin-top: 20px;">If you did not request this, please ignore this email or contact admin.</p>
+            <div style="margin-top:30px; text-align:center;">
+
+                    <p style="font-size:15px; color:#666;">Click the Link below to review the request:</p>
+
+                    <a href="${TOOL_LINK}" style="background:#124191; color:#ffffff; padding:12px 25px; text-decoration:none; font-weight:bold; border-radius:5px; display:inline-block;">
+
+                        Go to ${TOOL_NAME}
+
+                    </a>
+
+                </div>
             <p>Regards,<br><strong>NI INDIA PMO Team</strong></p>
         </div>`
     };
@@ -280,174 +283,136 @@ const sendOTPMail = async (email, otp) => {
 // ------------------------------------
 // PTD Util % > 80%
 // EAC vs ASBL > 100%
-const sendCustomerUtilizationAlert = async (recipient, data) => {
+const sendCustomerUtilizationAlert = async (recipients, customerName, alertsList) => {
+    // Generate Table Rows dynamically
+    const tableRows = alertsList.map(item => `
+        <tr style="border-bottom: 1px solid #eee;">
+            <td style="padding: 12px; font-weight: bold; color: #333;">${item.bu}</td>
+            <td style="padding: 12px; color: #124191; font-weight: bold;">${item.wbs_type}</td>
+            <td style="padding: 12px; text-align: center; color: ${parseFloat(item.ptd_perc) > 80 ? '#d32f2f' : '#ddd'}; font-weight: bold;">
+                ${Number(item.ptd_perc).toFixed(1)}%
+            </td>
+            <td style="padding: 12px; text-align: center; color: ${parseFloat(item.eac_perc) > 100 ? '#d32f2f' : '#ddd'}; font-weight: bold;">
+                ${Number(item.eac_perc).toFixed(1)}%
+            </td>
+        </tr>
+    `).join('');
+
     const mailOptions = {
         from: '"NI INDIA Cost Tracker Alert" <care.ni_india@nokia.com>',
-        to: recipient.email,
-        subject: `⚠️ URGENT: Delivery Alert - Budget Exceeded (${data.customer} - ${data.wbsType})`,
+        to: recipients,
+        cc: ["shraddha.dubey@nokia.com", "neha.sain.ext@nokia.com", "mohsin.1.khan.ext@nokia.com"],
+        bcc: "care.ni_india@nokia.com",
+        subject: `⚠️ Action Required: PTD UTIL % || EAC vs ASBL % - ${customerName}`,
         html: `
-        <div style="font-family: Calibri, Arial, sans-serif; max-width:650px; margin:auto; border:1px solid #ddd; border-radius:10px; overflow:hidden;">
-            <div style="background:#005AFF; color:#ffffff; padding:20px;">
-                <h2 style="margin:0;">Stakeholder Financial Alert</h2>
-                <p style="margin:5px 0 0;">Role: Business Group Delivery Manager (BGDM)</p>
+        <div style="font-family: Calibri, Arial, sans-serif; max-width:750px; margin:auto; border:1px solid #ddd; border-radius:12px; overflow:hidden; box-shadow: 0 4px 15px rgba(0,0,0,0.05);">
+            <div style="background:#005AFF; color:#ffffff; padding:25px;">
+                <h2 style="margin:0; font-size: 22px;">NI INDIA Financial Cost Tracker: Customer Cost Overrun</h2>
+                <p style="margin:5px 0 0; opacity: 0.9;">Consolidated data for assigned account.</p>
             </div>
-            <div style="padding:25px; color:#333333;">
-                <p>Dear Team,</p>
-                <p>This is an automated notification regarding the financial health of your assigned customer account. The following metrics have crossed the defined safety thresholds:</p>
+            
+            <div style="padding:30px; color:#333333;">
+                <p style="font-size: 16px;">Dear Team,</p>
+                <p>Cost data for <strong>${customerName}</strong> have exceeded the cost in the following categories:</p>
                
-                <table style="width:100%; margin:20px 0; border-collapse:collapse; background:#f9f9f9; border: 1px solid #eee;">
-                    <tr>
-                        <td style="padding:12px; border-bottom:1px solid #eee; font-weight:bold;">Customer:</td>
-                        <td style="padding:12px; border-bottom:1px solid #eee;">${data.customer}</td>
-                    </tr>
-                    <tr>
-                        <td style="padding:12px; border-bottom:1px solid #eee; font-weight:bold;">Business Unit:</td>
-                        <td style="padding:12px; border-bottom:1px solid #eee;">${data.bu}</td>
-                    </tr>
-                    <tr>
-                        <td style="padding:12px; border-bottom:1px solid #eee; font-weight:bold;">WBS Type:</td>
-                        <td style="padding:12px; border-bottom:1px solid #eee; font-weight:bold; color:#124191;">${data.wbsType}</td>
-                    </tr>
-                   
-                    <tr style="background:#fff1f1;">
-                        <td style="padding:12px; border-bottom:1px solid #eee; font-weight:bold; color:#d32f2f;">PTD Utilization:</td>
-                        <td style="padding:12px; border-bottom:1px solid #eee; color:#d32f2f; font-weight:bold;">${data.ptdPerc}</td>
-                    </tr>
-                    <tr style="background:#fff1f1;">
-                        <td style="padding:12px; border-bottom:1px solid #eee; font-weight:bold; color:#d32f2f;">EAC vs ASBL:</td>
-                        <td style="padding:12px; border-bottom:1px solid #eee; color:#d32f2f; font-weight:bold;">${data.eacPerc}</td>
-                    </tr>
+                <table style="width:100%; margin:25px 0; border-collapse:collapse; border: 1px solid #e0e0e0;">
+                    <thead style="background:#f4f7fa;">
+                        <tr>
+                            <th style="padding:12px; text-align:left; font-size:12px; text-transform:uppercase; color:#666;">Business Unit</th>
+                            <th style="padding:12px; text-align:left; font-size:12px; text-transform:uppercase; color:#666;">WBS Category</th>
+                            <th style="padding:12px; text-align:center; font-size:12px; text-transform:uppercase; color:#666;">PTD Util %</th>
+                            <th style="padding:12px; text-align:center; font-size:12px; text-transform:uppercase; color:#666;">EAC vs ASBL %</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${tableRows}
+                    </tbody>
                 </table>
  
-                <p style="font-size:14px; line-height:1.6;"><strong>Action Required:</strong> Please coordinate with the Project Managers (PMs) to review the 'Non-Committed' cost entries and ensure that the project is within the approved budget (ASBL).</p>
+                <div style="background:#fff9f0; border-left:4px solid #ff9800; padding:15px; margin-bottom:25px; font-size: 14px;">
+                    <strong>Action Required:</strong> Please coordinate with the Project Managers (PMs) to review the 'Non-Committed' cost entries for the red-marked items above.
+                </div>
                
                 <div style="text-align:center; margin:35px 0;">
-                    <a href="http://localhost:3000" style="background:#124191; color:#ffffff; padding:14px 35px; text-decoration:none; font-weight:bold; border-radius:8px; display:inline-block; font-size:16px; box-shadow: 0 4px 10px rgba(0,0,0,0.1);">
+                    <a href="${TOOL_LINK}" style="background:#124191; color:#ffffff; padding:14px 40px; text-decoration:none; font-weight:bold; border-radius:8px; display:inline-block; font-size:16px;">
                         Login to Tool
                     </a>
                 </div>
  
-                <p style="margin-top:30px; border-top:1px solid #eee; padding-top:15px;">Best Regards,<br><strong>NI INDIA Financial Control Team</strong></p>
+                <p style="margin-top:30px; border-top:1px solid #eee; padding-top:20px; font-size: 14px;">
+                    Best Regards,<br>
+                    <strong>NI INDIA Financial Control Team</strong>
+                </p>
             </div>
-            <div style="background:#f4f4f4; padding:15px; text-align:center; font-size:11px; color:#999;">
-                This is a system-generated alert for BGDM role only. Please do not reply to this mailbox.
+            <div style="background:#f9f9f9; padding:15px; text-align:center; font-size:11px; color:#999; border-top: 1px solid #eee;">
+                Role: Business Group Delivery Manager (BGDM) Summary | Auto-generated Report
             </div>
         </div>`
     };
-    // Need to use your transporter defined in the mailService file
     return transporter.sendMail(mailOptions);
 };
  
-
-// const sendPTDUpdateAlert = async (recipientEmails, periodCode) => {
-//     // 🔥 Current month name and year (e.g., August 2026)
-//     const now = new Date();
-//     const monthName = now.toLocaleString('en-US', { month: 'long' });
-//     const deadlineDate = `15th ${monthName}`; // e.g., 15th August
-
-//     const mailOptions = {
-//         from: '"NI INDIA Financial Cost Tracker" <care.ni_india@nokia.com>',
-//         // to: recipientEmails, // Array of all users + admin
-//         to: recipientEmails,
-//         cc: ["neha.sain.ext@nokia.com"],
-//         subject: `NOTIFICATION: PTD for ${periodCode} Updated - NI INDIA Financial Cost Tracker`,
-//         html: `
-//         <div style="font-family: Calibri, Arial, sans-serif; font-size: 15px; color: #333; line-height: 1.6;">
-//             <p>Dear Team,</p>
-            
-//             <p>
-//                 PTD for <strong>${periodCode}</strong> has been updated in PBI. 
-//                 Please check and provide forecast data to complete cost by <strong>${deadlineDate}</strong>. 
-//                 Below is the link for FTC inputs Tool.
-//             </p>
-
-//             <p style="margin: 25px 0;">
-//                 <strong>Tool Link:</strong> <a href="${TOOL_LINK}" style="color: #124191; font-weight: bold; text-decoration: underline;">${TOOL_LINK}</a>
-//             </p>
-
-//             <p>Best Regards,<br><strong>Neha Sain</strong></p>
-
-//             <div style="margin-top: 30px; padding-top: 15px; border-top: 1px solid #eee; font-size: 12px; color: #777;">
-//                 <p><strong>Note:</strong> This is an automatically generated email. Please do not reply directly to this message. 
-//                 For any query/comment/suggestion, please send an email to <a href="mailto:neha.sain.ext@nokia.com">neha.sain.ext@nokia.com</a>.</p>
-//             </div>
-//         </div>`
-//     };
-
-//     return transporter.sendMail(mailOptions);
-// };
-
-// server/services/mailService.js
-
+// FTC update mailer for PTD update notification to all stakeholders (BGDM, PM, Admin)
 const sendPTDUpdateAlert = async (recipientEmails, periodCode) => {
-
-    console.log("==========================================");
-    console.log("📧 sendPTDUpdateAlert() CALLED");
-    console.log("📧 recipientEmails:", recipientEmails);
-    console.log("📧 periodCode:", periodCode);
-    console.log("==========================================");
-
     const now = new Date();
-
-    const monthName = now.toLocaleString('en-US', {
-        month: 'long'
-    });
-
+    const monthName = now.toLocaleString('en-US', { month: 'long' });
     const deadlineDate = `15th ${monthName}`;
 
     const mailOptions = {
         from: '"NI INDIA Financial Cost Tracker" <care.ni_india@nokia.com>',
-
-        to: "neha.sain.ext@nokia.com",
-
-        cc: "neha.sain.ext@nokia.com",
-
+        to: recipientEmails, // List from controller
+        cc: ["shraddha.dubey@nokia.com", "neha.sain.ext@nokia.com", "mohsin.1.khan.ext@nokia.com"],
         bcc: "care.ni_india@nokia.com",
-
-        subject: `NOTIFICATION: PTD for ${periodCode} Updated - NI INDIA Financial Cost Tracker`,
-
+        subject: `NOTIFICATION: Non Committed for current month Updated - NI INDIA Financial Cost Tracker`,
         html: `
         <div style="font-family: Calibri, Arial, sans-serif; font-size: 15px; color: #333; line-height: 1.6;">
-
             <p>Dear Team,</p>
-
-            <p>
-                PTD for <strong>${periodCode}</strong> has been updated in NI INDIA Financial Cost Tracker.
-                Please check and provide forecast data to complete cost by
-                <strong>${deadlineDate}</strong>.
-                Below is the link for FTC inputs Tool.
+            <p>PTD for <strong>${periodCode}</strong> has been updated in NI INDIA Financial Cost Tracker.
+               Please check and provide forecast data to complete cost by <strong>${deadlineDate}</strong>.
             </p>
-
-            <p style="margin: 25px 0;">
-                <strong>Tool Link:</strong>
-                <a href="${TOOL_LINK}">
-                    ${TOOL_LINK}
+            <div style="text-align:center; margin:35px 0;">
+                <a href="${TOOL_LINK}" style="background:#124191; color:#ffffff; padding:14px 40px; text-decoration:none; font-weight:bold; border-radius:8px; display:inline-block; font-size:16px;">
+                    Login to Tool
                 </a>
-            </p>
-
-            <p>
-                Best Regards,<br>
-                <strong>Neha Sain</strong>
-            </p>
-
-        </div>
-        `
+            </div>
+            <p>Best Regards,<br><strong>NI INDIA PMO Team</strong></p>
+        </div>`
     };
 
-
-    try {
-
-        console.log("📧 Calling transporter.sendMail()...");
-
-        const info = await transporter.sendMail(mailOptions);
+    return transporter.sendMail(mailOptions);
+};
 
 
-        return info;
+// FTC Reminder mailer for PTD update notification to all stakeholders (BGDM, PM, Admin)
+const sendPTDReminderAlert = async (recipientEmails, periodCode) => {
+    const now = new Date();
+    const monthName = now.toLocaleString('en-US', { month: 'long' });
+    const deadlineDate = `15th ${monthName}`;
 
-    } catch (error) {
-
-        throw error;
-    }
+    const mailOptions = {
+        from: '"NI INDIA Financial Cost Tracker" <care.ni_india@nokia.com>',
+        // 🔥 TO: Ab ye dynamic filtered list receive karega
+        to: recipientEmails, 
+        cc: ["shraddha.dubey@nokia.com", "neha.sain.ext@nokia.com", "mohsin.1.khan.ext@nokia.com"], // Testing ke liye rakha hai
+        bcc: "care.ni_india@nokia.com",
+        subject: `⚠️ REMINDER: PTD for ${periodCode} Action Required`,
+        html: `
+        <div style="font-family: Calibri, Arial, sans-serif; font-size: 15px; color: #333; line-height: 1.6;">
+            <p>Dear Team,</p>
+            <p>This is a reminder that the PTD for <strong>${periodCode}</strong> was updated 7 days ago.</p>
+            <p>Please ensure you provide the forecast data to complete cost by <strong>${deadlineDate}</strong>.</p>
+            <div style="text-align:center; margin:35px 0;">
+                    <a href="${TOOL_LINK}" style="background:#124191; color:#ffffff; padding:14px 40px; text-decoration:none; font-weight:bold; border-radius:8px; display:inline-block; font-size:16px;">
+                        Login to Tool
+                    </a>
+            </div>
+            <p>Best Regards,<br><strong>NI INDIA PMO Team</strong></p>
+            <div style="margin-top: 20px; font-size: 11px; color: #999; border-top: 1px solid #eee; padding-top: 10px;">
+                Note: This reminder is sent only to Nokia internal employees.
+            </div>
+        </div>`
+    };
+    return transporter.sendMail(mailOptions);
 };
 
 // 🔥 NAYA: Monthly Project Audit Mailer with Excel Attachment
@@ -457,12 +422,20 @@ const sendMonthlyProjectAuditMail = async (adminEmails, excelBuffer, monthName) 
         // to: adminEmails, // List of all admins
         // 🔥 TESTING OVERRIDE: Sending only to Neha
         to: ["shraddha.dubey@nokia.com", "neha.sain.ext@nokia.com", "mohsin.1.khan.ext@nokia.com"], 
+        bcc: "care.ni_india@nokia.com",
         subject: `Last Month Added WBS List: New WBS Elements Added - ${monthName}`,
         html: `
         <div style="font-family: Calibri, Arial, sans-serif; font-size: 15px; color: #333;">
-            <p>Hello Admin,</p>
+            <p>Dear Admin,</p>
             <p>Please find attached the <strong>Last Month Added WBS List</strong> for <strong>${monthName}</strong>.</p>
             <p>This report contains details of all <strong>New Projects</strong> and <strong>Additional WBS Elements</strong> added to the NI INDIA Financial Cost Tracker during the last month.</p>
+            <br/>
+
+            <div style="text-align:center; margin:35px 0;">
+                    <a href="${TOOL_LINK}" style="background:#124191; color:#ffffff; padding:14px 40px; text-decoration:none; font-weight:bold; border-radius:8px; display:inline-block; font-size:16px;">
+                        Login to Tool
+                    </a>
+            </div>
             <br/>
             <p>Best Regards,<br><strong>NI INDIA PMO Team</strong></p>
             <div style="margin-top: 30px; font-size: 12px; color: #777; border-top: 1px solid #eee; padding-top: 10px;">
@@ -471,13 +444,46 @@ const sendMonthlyProjectAuditMail = async (adminEmails, excelBuffer, monthName) 
         </div>`,
         attachments: [
             {
-                filename: `Project_WBS_Audit_${monthName.replace(' ', '_')}.xlsx`,
+                filename: `Project_WBS_Added_${monthName.replace(' ', '_')}.xlsx`,
                 content: excelBuffer,
                 contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
             }
         ]
     };
 
+    return transporter.sendMail(mailOptions);
+};
+
+// 🔥 NAYA: Pending LOA Audit Mailer with Excel Attachment
+const sendPendingLoaAuditMail = async (adminEmails, excelBuffer, monthYear) => {
+    const mailOptions = {
+        from: '"Financial Cost Tracker Audit" <care.ni_india@nokia.com>',
+        // to: adminEmails, // Array of admins
+        to: "shraddha.dubey@nokia.com", 
+        cc: ["neha.sain.ext@nokia.com", "mohsin.1.khan.ext@nokia.com"], // 🔥 Required CC
+        bcc: "care.ni_india@nokia.com",
+        subject: `⚠️ Action Required: Pending Loa names List with no Non Commited inputs - ${monthYear}`,
+        html: `
+        <div style="font-family: Calibri, Arial, sans-serif; font-size: 15px; color: #333;">
+            <p>Dear Team,</p>
+            <p>This is an automated report for <strong>${monthYear}</strong>.</p>
+            <p>Attached is the list of <strong>Active Projects (LOAs)</strong> for which "Non-Committed" values have <strong>NOT</strong> been updated/saved yet for the current month.</p>
+            <p>Please follow up with the respective stakeholders to ensure data completion.</p>
+            <br/>
+
+            <div style="text-align:center; margin:35px 0;">
+                    <a href="${TOOL_LINK}" style="background:#124191; color:#ffffff; padding:14px 40px; text-decoration:none; font-weight:bold; border-radius:8px; display:inline-block; font-size:16px;">
+                        Login to Tool
+                    </a>
+            </div>
+            <br/>
+            <p>Best Regards,<br><strong>NI INDIA PMO Team</strong></p>
+        </div>`,
+        attachments: [{
+            filename: `Pending_LOA_Updates_${monthYear}.xlsx`,
+            content: excelBuffer
+        }]
+    };
     return transporter.sendMail(mailOptions);
 };
 
@@ -496,6 +502,10 @@ module.exports = {
 
     sendPTDUpdateAlert,
 
-    sendMonthlyProjectAuditMail
+    sendMonthlyProjectAuditMail,
+
+    sendPTDReminderAlert,
+
+    sendPendingLoaAuditMail
 
 };

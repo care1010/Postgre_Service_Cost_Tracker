@@ -8,12 +8,26 @@ const ExcelJS = require('exceljs');
 const mailService = require('../services/mailService');
 
 // Global job references to prevent "not defined" errors
-let currentCronJob = null;
-let monthlyBackupJob = null;
+// 🔥 ENSURE ALL REFERENCES ARE DECLARED TOP
+let syncJob = null;
+let backupJob = null;
 let bgdmAlertJob = null;
-let monthlyAuditJob = null;
+let projectAuditJob = null;
+let ptdReminderJob = null; // 🔥 Reference for Reminder
+let pendingLoaJob = null;  // 🔥 Reference for Pending Audit
+
 let isSyncing = false;
 let autoSyncTimeout = null;
+
+// ==========================================
+// 🛡️ PM2 INSTANCE GUARD
+// Only run cron on the first instance to prevent duplicate mails
+// ==========================================
+const isPrimaryInstance = () => {
+    // PM2 sets NODE_APP_INSTANCE. If not using PM2, it will be undefined (return true)
+    const instance = process.env.NODE_APP_INSTANCE;
+    return instance === undefined || instance === '0';
+};
 
 // ==========================================
 // 📦 DATABASE BACKUP ENGINE (PostgreSQL)
@@ -88,15 +102,14 @@ const runSync = async (triggeredBy = 'cron') => {
 
 // 🔥 NAYA: Alerts Runner
 const runMonthlyAlerts = async () => {
+    if (!isPrimaryInstance()) return;
     console.log("🚀 CRON: Starting Monthly BGDM Alerts...");
     try {
         await db.query("UPDATE cron_config SET last_run_at = NOW(), last_run_status = 'running' WHERE job_name = 'bgdm_alerts'");
-        
         const mailsSent = await dataController.runBGDMAlertsCore();
-
         await db.query("UPDATE cron_config SET last_run_status = 'success', last_run_message = ?, run_count = run_count + 1 WHERE job_name = 'bgdm_alerts'", 
-        [`Sent ${mailsSent} alerts successfully`]);
-        console.log(`✅ CRON Alerts: Completed. Mails sent: ${mailsSent}`);
+        [`Sent ${mailsSent} consolidated alerts`]);
+        console.log(`✅ CRON Alerts: Sent ${mailsSent} mails.`);
     } catch (error) {
         console.error('❌ CRON Alerts Error:', error.message);
         await db.query("UPDATE cron_config SET last_run_status = 'error', last_run_message = ? WHERE job_name = 'bgdm_alerts'", [error.message.substring(0, 250)]);
@@ -152,46 +165,136 @@ const runMonthlyProjectAudit = async () => {
 };
 
 
+// 1. Naya FTC REminder date checker Function define karein
+const runDailyReminderCheck = async () => {
+    console.log("🚀 CRON: Checking PTD Reminders...");
+    try {
+        const [due] = await db.query(
+            `SELECT * FROM pending_ptd_reminders WHERE status = 'pending' AND scheduled_at <= NOW()`
+        );
+
+        if (due.length === 0) return console.log("ℹ️ No pending reminders due.");
+
+        // 1. 🔥 Fetch saare active users
+        const [userRows] = await db.query("SELECT email FROM users WHERE is_active = '1'");
+        
+        // 2. 🔥 FILTER LOGIC: Sirf wahi users jinme '.ext' nahi hai
+        const internalUsers = userRows
+            .map(u => u.email)
+            .filter(email => {
+                // Email ko lowercase karke check karo ki '.ext@' hai ya nahi
+                return email && !email.toLowerCase().includes(".ext@");
+            });
+
+        if (internalUsers.length === 0) {
+            console.log("⚠️ No internal (non-ext) users found to send reminder.");
+            return;
+        }
+
+        for (const rem of due) {
+            // 3. Trigger filtered reminder
+            await mailService.sendPTDReminderAlert(internalUsers, rem.period_code);
+            
+            await db.query(`UPDATE pending_ptd_reminders SET status = 'sent' WHERE id = ?`, [rem.id]);
+            console.log(`✅ Reminder sent to ${internalUsers.length} internal users for ${rem.period_code}`);
+        }
+
+    } catch (error) {
+        console.error("❌ Reminder Job Error:", error.message);
+    }
+};
+
+
+const runPendingLoaAudit = async () => {
+    console.log("🚀 CRON: Starting Monthly Pending LOA Audit...");
+    try {
+        await db.query("UPDATE cron_config SET last_run_at = NOW(), last_run_status = 'running' WHERE job_name = 'pending_loa_audit'");
+
+        const now = new Date();
+        const monthYear = now.toLocaleString('en-US', { month: 'short', year: 'numeric' }).replace(' ', '-');
+        
+        // 🔥 Internal Call: No req/res needed
+        const pendingData = await dataController.getPendingLoas();
+
+        if (pendingData.length === 0) {
+            return await db.query("UPDATE cron_config SET last_run_status = 'success', last_run_message = 'No pending LOAs today' WHERE job_name = 'pending_loa_audit'");
+        }
+
+        const workbook = new ExcelJS.Workbook();
+        const sheet = workbook.addWorksheet('Pending Projects');
+        sheet.columns = [
+            { header: 'BU', key: 'bu', width: 10 },
+            { header: 'Customer', key: 'customer', width: 25 },
+            { header: 'LOA ID', key: 'loa_id', width: 15 },
+            { header: 'Project Name', key: 'loa_name', width: 40 }
+        ];
+        pendingData.forEach(row => sheet.addRow(row));
+        sheet.getRow(1).font = { bold: true };
+
+        const buffer = await workbook.xlsx.writeBuffer();
+        
+        const [admins] = await db.query("SELECT email FROM users WHERE type IN ('admin', 'super_admin') AND is_active = '1'");
+        const adminEmails = admins.map(a => a.email);
+
+        await mailService.sendPendingLoaAuditMail(adminEmails, buffer, monthYear);
+        
+        await db.query("UPDATE cron_config SET last_run_status = 'success', last_run_message = 'Mail sent successfully', run_count = run_count + 1 WHERE job_name = 'pending_loa_audit'");
+        console.log("✅ CRON: Pending Audit mail delivered.");
+    } catch (err) {
+        console.error("❌ CRON Error:", err.message);
+        await db.query("UPDATE cron_config SET last_run_status = 'error', last_run_message = ? WHERE job_name = 'pending_loa_audit'", [err.message.substring(0, 200)]);
+    }
+};
+
+
 // ==========================================
-// ⏰ INITIALIZATION (Sync + Backup + Audit)
+// ⏰ INITIALIZATION (With Primary Check)
 // ==========================================
 exports.initCron = async () => {
+    // 🛑 STOP: Agar ye primary instance nahi hai, toh scheduler mat chalao
+    if (!isPrimaryInstance()) {
+        console.log(`⏭️  Instance ${process.env.NODE_APP_INSTANCE}: Skipping Cron initialization.`);
+        return;
+    }
+
     try {
-        // --- 1. DATA SYNC CRON ---
-        if (currentCronJob) currentCronJob.stop();
-        const [syncRows] = await db.query("SELECT * FROM cron_config WHERE job_name = 'full_sync'");
-        if (syncRows.length > 0 && syncRows[0].is_enabled) {
-            currentCronJob = cron.schedule(syncRows[0].cron_expression, () => runSync('scheduled_cron'));
-            console.log(`⏰ Data Sync Cron: ${syncRows[0].cron_expression}`);
-        }
+        console.log("♻️  Initializing Primary Scheduler...");
 
-        // --- 2. MONTHLY BACKUP CRON ---
-        if (monthlyBackupJob) monthlyBackupJob.stop();
-        const [backupRows] = await db.query("SELECT * FROM cron_config WHERE job_name = 'db_backup'");
-        if (backupRows.length > 0 && backupRows[0].is_enabled) {
-            monthlyBackupJob = cron.schedule(backupRows[0].cron_expression, () => {
-                runDatabaseBackup();
-            });
-            console.log(`⏰ Backup Cron: ${backupRows[0].cron_expression}`);
-        }
-
-        // --- 3. BGDM ALERTS CRON ---
+        // 1. Stop all existing to prevent "Zombie" jobs
+        if (syncJob) syncJob.stop();
+        if (backupJob) backupJob.stop();
         if (bgdmAlertJob) bgdmAlertJob.stop();
-        const [alertRows] = await db.query("SELECT * FROM cron_config WHERE job_name = 'bgdm_alerts'");
-        if (alertRows.length > 0 && alertRows[0].is_enabled) {
-            bgdmAlertJob = cron.schedule(alertRows[0].cron_expression, () => runMonthlyAlerts());
-            console.log(`⏰ BGDM Alerts Cron: ${alertRows[0].cron_expression}`);
-        }
+        if (projectAuditJob) projectAuditJob.stop();
+        if (ptdReminderJob) ptdReminderJob.stop();
+        if (pendingLoaJob) pendingLoaJob.stop();
 
-        // --- 4. 🔥 FIXED: MONTHLY PROJECT AUDIT CRON ---
-        if (monthlyAuditJob) monthlyAuditJob.stop();
-        // 4. Audit Job (1st of month @ 12 PM - fetched from DB)
-        const [auConf] = await db.query("SELECT * FROM cron_config WHERE job_name = 'monthly_project_audit'");
-        if (auConf.length > 0 && auConf[0].is_enabled) {
-            monthlyAuditJob = cron.schedule(auConf[0].cron_expression, () => runMonthlyProjectAudit());
-            console.log(`⏰ Audit Cron active: ${auConf[0].cron_expression}`);
-        }
+        // 2. Fetch fresh config
+        const [configs] = await db.query("SELECT * FROM cron_config");
 
+        configs.forEach(conf => {
+            if (!conf.is_enabled) return;
+
+            console.log(`⏰ Setting up [${conf.job_name}]: ${conf.cron_expression}`);
+
+            if (conf.job_name === 'full_sync') {
+                syncJob = cron.schedule(conf.cron_expression, () => runSync('scheduled'));
+            } 
+            else if (conf.job_name === 'db_backup') {
+                backupJob = cron.schedule(conf.cron_expression, () => runDatabaseBackup());
+            } 
+            else if (conf.job_name === 'bgdm_alerts') {
+                bgdmAlertJob = cron.schedule(conf.cron_expression, () => runMonthlyAlerts());
+            } 
+            else if (conf.job_name === 'monthly_project_audit') {
+                projectAuditJob = cron.schedule(conf.cron_expression, () => runMonthlyProjectAudit());
+            } 
+            else if (conf.job_name === 'ptd_reminder_check') {
+                ptdReminderJob = cron.schedule(conf.cron_expression, () => runDailyReminderCheck());
+            } 
+            else if (conf.job_name === 'pending_loa_audit') {
+                pendingLoaJob = cron.schedule(conf.cron_expression, () => runPendingLoaAudit());
+            }
+        });
     } catch (err) {
         console.error("❌ Cron Init Error:", err.message);
     }
@@ -202,8 +305,8 @@ exports.initCron = async () => {
 // ==========================================
 exports.getCronConfig = async (req, res) => {
     try {
-        const [rows] = await db.query("SELECT * FROM cron_config WHERE job_name = 'full_sync'");
-        res.json(rows[0] || null);
+        const [rows] = await db.query("SELECT * FROM cron_config ORDER BY id ASC");
+        res.json(rows); // 🔥 Return poori list
     } catch (err) { res.status(500).json({ error: err.message }); }
 };
 
@@ -213,13 +316,15 @@ exports.getSyncStatus = (req, res) => {
 
 exports.updateCronConfig = async (req, res) => {
     try {
-        const { cron_expression, is_enabled } = req.body;
+        const { job_name, cron_expression, is_enabled } = req.body;
+        if (!job_name) return res.status(400).json({ error: "Job name is required" });
+
         const updates = [];
         const params = [];
 
         if (cron_expression !== undefined) {
             if (cron_expression !== 'custom' && !cron.validate(cron_expression)) {
-                return res.status(400).json({ error: 'Invalid cron expression format' });
+                return res.status(400).json({ error: 'Invalid format' });
             }
             updates.push(`cron_expression = ?`);
             params.push(cron_expression);
@@ -230,22 +335,26 @@ exports.updateCronConfig = async (req, res) => {
         }
 
         if (updates.length > 0) {
-            params.push('full_sync'); 
+            params.push(job_name); 
             await db.query(`UPDATE cron_config SET ${updates.join(', ')}, updated_at = NOW() WHERE job_name = ?`, params);
-            await exports.initCron();
+            await exports.initCron(); // 🔥 Jobs ko reload karo naye time ke saath
         }
 
-        const [rows] = await db.query("SELECT * FROM cron_config WHERE job_name = 'full_sync'");
-        res.json({ message: "Settings updated successfully", config: rows[0] });
-    } catch (err) { 
-        res.status(500).json({ error: err.message }); 
-    }
+        const [rows] = await db.query("SELECT * FROM cron_config WHERE job_name = ?", [job_name]);
+        res.json({ message: `${job_name} updated!`, config: rows[0] });
+    } catch (err) { res.status(500).json({ error: err.message }); }
 };
 
 exports.triggerManualSync = async (req, res) => {
-    if (isSyncing) return res.status(400).json({ message: "Sync is already running." });
-    runSync(req.body.triggeredBy || 'manual_trigger');
-    res.json({ message: "Sync started in background." });
+    const { job_name } = req.body;
+    try {
+        if (job_name === 'full_sync') runSync('manual_admin');
+        else if (job_name === 'db_backup') runDatabaseBackup();
+        else if (job_name === 'bgdm_alerts') runMonthlyAlerts();
+        else if (job_name === 'monthly_project_audit') runMonthlyProjectAudit();
+        
+        res.json({ message: `Job [${job_name}] triggered in background.` });
+    } catch (err) { res.status(500).json({ message: "Failed to trigger" }); }
 };
 
 exports.triggerAutoSync = (source) => {

@@ -156,4 +156,8 @@ router.get('/raw-export', rawDrillController.exportRawData);
 router.post('/forgot-password/request', forgotPasswordController.requestOTP);
 router.post('/forgot-password/reset', forgotPasswordController.resetPassword);
 
+router.get('/pending-loas', dataController.getPendingLoas);
+
+router.get('/overspent-loa-table', dataController.getOverspentLOATable);
+
 module.exports = router;

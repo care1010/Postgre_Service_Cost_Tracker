@@ -166,7 +166,7 @@ useEffect(() => {
                 <AdminPanel user={user} onBack={() => setActiveTab('summary')} />
               )}
               {activeTab === 'my-access' && (<MyAccess user={user} />)}
-              {activeTab === 'logs' && (<Logs />)}
+              {activeTab === 'logs' && <Logs user={user} />}
               {activeTab === 'access-requests' && (user?.type === 'admin' || user?.type === 'super_admin') && (
                   <AccessRequestsTable onBack={() => setActiveTab('summary')} />
               )}
