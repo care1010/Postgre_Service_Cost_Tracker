@@ -124,64 +124,30 @@ const runMonthlyProjectAudit = async () => {
 
         const now = new Date();
         now.setMonth(now.getMonth() - 1);
-        const reportMonth = now.toLocaleString('en-US', { month: 'short', year: 'numeric' });
+        const reportMonth = now.toLocaleString('en-US', { month: 'long', year: 'numeric' });
 
-        // SQL: Fetch only necessary data + ASBL Check for New Projects
+        // SQL: Fetch August data if today is September
         const [logRows] = await db.query(`
-            SELECT 
-                p.bu, p.customer, p.loa_id, p.loa_name, p.single_wbs, p.wbs_type,
-                CASE 
-                    WHEN p.action_mode = 'New Project' THEN
-                        CASE 
-                            WHEN EXISTS (
-                                SELECT 1 FROM asbl_activity_logs a 
-                                WHERE a.loa_id = p.loa_id 
-                                AND a.created_at >= date_trunc('month', current_date - interval '1 month')
-                                AND a.created_at < date_trunc('month', current_date)
-                            ) THEN 'Updated'
-                            ELSE 'Not Updated'
-                        END
-                    ELSE 'N/A' -- Check applied only for new projects
-                END as asbl_status
-            FROM project_activity_logs p
-            WHERE p.created_at >= date_trunc('month', current_date - interval '1 month')
-              AND p.created_at < date_trunc('month', current_date)
-            ORDER BY p.created_at ASC
+            SELECT loa_id, loa_name, action_mode, single_wbs, created_at 
+            FROM project_activity_logs 
+            WHERE created_at >= date_trunc('month', current_date - interval '1 month')
+              AND created_at < date_trunc('month', current_date)
+            ORDER BY created_at ASC
         `);
 
         const workbook = new ExcelJS.Workbook();
         const sheet = workbook.addWorksheet('Audit Log');
-        
-        // 🔥 STRICT 7 COLUMNS AS PER YOUR REQUIREMENT
         sheet.columns = [
-            { header: 'BU', key: 'bu', width: 10 },
-            { header: 'CT name', key: 'customer', width: 25 },
-            { header: 'Opportunity Code', key: 'loa_id', width: 15 },
-            { header: 'Project Description', key: 'loa_name', width: 40 },
-            { header: 'WBS', key: 'wbs', width: 60 },
-            { header: 'WBS type', key: 'wbs_type', width: 15 },
-            { header: 'ASBL Updated or not (For new project)', key: 'asbl_status', width: 40 }
+            { header: 'LOA ID', key: 'loa_id', width: 15 },
+            { header: 'Project Name', key: 'loa_name', width: 40 },
+            { header: 'Action', key: 'mode', width: 20 },
+            { header: 'WBS Elements', key: 'wbs', width: 80 }
         ];
 
-        // Data add karna
         logRows.forEach(log => {
-            sheet.addRow({ 
-                bu: log.bu || '-',
-                customer: log.customer || '-',
-                loa_id: log.loa_id, 
-                loa_name: log.loa_name, 
-                wbs: log.single_wbs,
-                wbs_type: log.wbs_type || '-',
-                asbl_status: log.asbl_status
-            });
+            sheet.addRow({ loa_id: log.loa_id, loa_name: log.loa_name, mode: log.action_mode, wbs: log.single_wbs });
         });
-
-        // Professional Header Styling (Nokia Blue Theme)
-        sheet.getRow(1).eachCell((cell) => {
-            cell.font = { bold: true, color: { argb: 'FFFFFF' } };
-            cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: '124191' } };
-            cell.alignment = { horizontal: 'center' };
-        });
+        sheet.getRow(1).font = { bold: true };
 
         const buffer = await workbook.xlsx.writeBuffer();
         const [admins] = await db.query("SELECT email FROM users WHERE type IN ('admin', 'super_admin') AND is_active = '1'");
@@ -189,8 +155,8 @@ const runMonthlyProjectAudit = async () => {
 
         if (adminEmails.length > 0) {
             await mailService.sendMonthlyProjectAuditMail(adminEmails, buffer, reportMonth);
-            await db.query("UPDATE cron_config SET last_run_status = 'success', last_run_message = 'Audit report delivered with 7 columns', run_count = run_count + 1 WHERE job_name = 'monthly_project_audit'");
-            console.log(`✅ Audit mail delivered for ${reportMonth}`);
+            await db.query("UPDATE cron_config SET last_run_status = 'success', last_run_message = 'Audit report delivered', run_count = run_count + 1 WHERE job_name = 'monthly_project_audit'");
+            console.log(`✅ Audit mail sent for ${reportMonth}`);
         }
     } catch (error) {
         console.error('❌ Audit Error:', error.message);

@@ -197,6 +197,7 @@ const EXPORT_COLUMNS = {
     { key: 'project_def', header: 'PROJ DEF' },
     { key: 'sap_wbs', header: 'WBS' },
     { key: 'oc_val', header: 'OC VAL (K€)' },
+    { key: 'period', header: 'Period' }, // 🔥 Naya added
     { key: 'refdocno', header: 'REFDOCNO' },
     { key: 'item', header: 'ITEM' },
     { key: 'co_object_name', header: 'CO_OBJECT_NAME' },

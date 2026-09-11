@@ -676,7 +676,11 @@ exports.getWbsSummaryCollapse = async (req, res) => {
 
 // 🔥 NEW: STANDALONE CORE ENGINE (Can be called by Cron or API)
 exports.runFullSyncCore = async () => {
-    console.log("🚀 Starting Sync Engine (PostgreSQL)...");
+    console.log("🚀 Starting Ultra-Optimized Sync Engine...");
+
+    try {
+        // 1. Session timeout badhana (5 minutes tak allow karega)
+        await db.query("SET statement_timeout = '300s'");
 
     // Phase 1: PTD Staging
     await db.query(`DROP TABLE IF EXISTS stg_cj74_agg`);
@@ -694,15 +698,28 @@ exports.runFullSyncCore = async () => {
 
     // Phase 2: OC Staging
     await db.query(`DROP TABLE IF EXISTS stg_cji5_agg`);
-    await db.query(`
-        CREATE TABLE stg_cji5_agg AS
-        SELECT TRIM(REPLACE(REPLACE(REPLACE(wbs_element, ' ', ''), CHR(10), ''), CHR(13), '')) AS clean_wbs, TRIM(cost_element) AS cost_element,
-            SUM(CASE WHEN TRIM(val_in_rep_cur::text) ~ '^[+-]?[0-9]*\.?[0-9]+$' THEN CAST(TRIM(val_in_rep_cur::text) AS NUMERIC(18,2)) ELSE 0 END / 1000) AS oc_val
-        FROM cji5_new 
-        GROUP BY 1, 2
-    `);
+        await db.query(`
+            CREATE TABLE stg_cji5_agg AS
+            SELECT TRIM(REPLACE(REPLACE(REPLACE(wbs_element, ' ', ''), CHR(10), ''), CHR(13), '')) AS clean_wbs, 
+                cost_element,
+                TRIM(CONCAT(year, '-P', LPAD(TRIM(per::text), 3, '0'))) AS period,
+                SUM(CASE WHEN TRIM(val_in_rep_cur::text) ~ '^[+-]?[0-9]*\\.?[0-9]+$' THEN CAST(TRIM(val_in_rep_cur::text) AS NUMERIC(18,2)) ELSE 0 END / 1000) AS oc_val
+            FROM cji5_new 
+            WHERE year IS NOT NULL AND per IS NOT NULL
+            GROUP BY 1, 2, 3
+        `);
     await db.query("CREATE INDEX idx_stg_cji5_wbs ON stg_cji5_agg (clean_wbs)");
     await db.query("CREATE INDEX idx_stg_cji5_ce ON stg_cji5_agg (cost_element)");
+
+    // 🔥 NEW Phase 2.5: Pre-calculate Latest Period (Optimization for speed)
+    await db.query(`DROP TABLE IF EXISTS stg_wbs_latest_period`);
+    await db.query(`
+        CREATE TABLE stg_wbs_latest_period AS
+        SELECT clean_wbs, cost_element, MAX(period) as last_ptd_period
+        FROM stg_cj74_agg
+        GROUP BY 1, 2
+    `);
+    await db.query("CREATE INDEX idx_stg_wbs_lp ON stg_wbs_latest_period (clean_wbs, cost_element)");
 
     // Phase 3: Master Mapping
     await db.query(`DROP TABLE IF EXISTS stg_master_mapping`);
@@ -716,37 +733,71 @@ exports.runFullSyncCore = async () => {
     await db.query("CREATE INDEX idx_stg_mm_ce ON stg_master_mapping (cost_element)");
     await db.query('CREATE INDEX idx_stg_mm_cat ON stg_master_mapping ("Merged_wbs_categories")');
 
+    // Latest reporting period nikalna
+        const [maxRow] = await db.query("SELECT MAX(period) as lrp FROM stg_cj74_agg");
+        const sysLastPeriod = maxRow[0]?.lrp || 'N/A';
+
     // Phase 4: Final Table Fill
     await db.query("TRUNCATE TABLE final_dashboard_table");
-    const finalInsertSql = `
-        INSERT INTO final_dashboard_table 
-        (id, bu, customer, loa_id, loa_name, cost_revenue, categories, merged_wbs, active_inactive, 
-         asbl, asbl_amc, asbl_project, asbl_warranty, asbl_loa, non_committed, non_committed_amc, non_committed_project, non_committed_warranty,
-         non_committed_editable, non_committed_editable_amc, non_committed_editable_project, non_committed_editable_warranty,
-         period, ptd, wbs_element_single, wbs_type, wbs_description, open_commitment_KEUR, eac, eac_vs_asbl, "Merged_wbs_categories", updated_by, updated_at)
-        SELECT id, bu, customer, loa_id, loa_name, cost_revenue, categories, merged_wbs, active_inactive,
-            CASE WHEN rank_project = 1 THEN asbl ELSE 0 END, CASE WHEN rank_project = 1 THEN asbl_amc ELSE 0 END, CASE WHEN rank_project = 1 THEN asbl_project ELSE 0 END, CASE WHEN rank_project = 1 THEN asbl_warranty ELSE 0 END, CASE WHEN rank_project = 1 THEN asbl_loa ELSE 0 END,
-            CASE WHEN rank_project = 1 THEN non_committed ELSE 0 END, CASE WHEN rank_project = 1 THEN non_committed_amc ELSE 0 END, CASE WHEN rank_project = 1 THEN non_committed_project ELSE 0 END, CASE WHEN rank_project = 1 THEN non_committed_warranty ELSE 0 END,
-            CASE WHEN rank_project = 1 THEN non_committed_editable ELSE 0 END, CASE WHEN rank_project = 1 THEN non_committed_editable_amc ELSE 0 END, CASE WHEN rank_project = 1 THEN non_committed_editable_project ELSE 0 END, CASE WHEN rank_project = 1 THEN non_committed_editable_warranty ELSE 0 END,
-            period, ptd, wbs_element_single, wbs_type, wbs_description, CASE WHEN rank_oc = 1 THEN oc_val_raw ELSE 0 END,
-            (ptd + CASE WHEN rank_oc = 1 THEN oc_val_raw ELSE 0 END + CASE WHEN rank_project = 1 THEN non_committed_editable ELSE 0 END),
-            (CASE WHEN rank_project = 1 THEN asbl ELSE 0 END - (ptd + CASE WHEN rank_oc = 1 THEN oc_val_raw ELSE 0 END + CASE WHEN rank_project = 1 THEN non_committed_editable ELSE 0 END)),
-            "Merged_wbs_categories", updated_by, updated_at
-        FROM (
-            SELECT COALESCE(s.id::text, CONCAT('NEW-', m."Merged_wbs_categories")) AS id, COALESCE(s.bu, m.bu) AS bu, COALESCE(s.customer, m.customer) AS customer, COALESCE(s.loa_id, m.loa_id) AS loa_id, COALESCE(s.loa_name, m.loa_name) AS loa_name, COALESCE(s.cost_revenue, m.mapped_cost_revenue) AS cost_revenue, m.categories, COALESCE(s.merged_wbs, m.merged_wbs) AS merged_wbs, COALESCE(s.active_inactive, 'Active') AS active_inactive,
-                COALESCE(s.asbl, 0) AS asbl, COALESCE(s.asbl_amc, 0) AS asbl_amc, COALESCE(s.asbl_project, 0) AS asbl_project, COALESCE(s.asbl_warranty, 0) AS asbl_warranty, COALESCE(s.asbl_loa, 0) AS asbl_loa, COALESCE(s.non_committed, 0) AS non_committed, COALESCE(s.non_committed_amc, 0) AS non_committed_amc, COALESCE(s.non_committed_project, 0) AS non_committed_project, COALESCE(s.non_committed_warranty, 0) AS non_committed_warranty, COALESCE(s.non_committed_editable, 0) AS non_committed_editable, COALESCE(s.non_committed_editable_amc, 0) AS non_committed_editable_amc, COALESCE(s.non_committed_editable_project, 0) AS non_committed_editable_project, COALESCE(s.non_committed_editable_warranty, 0) AS non_committed_editable_warranty,
-                cj.period, COALESCE(cj.ptd_val, 0) AS ptd, m.single_wbs AS wbs_element_single, m.wbs_type, m.wbs_description, COALESCE(ci.oc_val, 0) AS oc_val_raw, m."Merged_wbs_categories", s.updated_by, s.updated_at,
-                ROW_NUMBER() OVER (PARTITION BY m.single_wbs, m.cost_element ORDER BY cj.period DESC) AS rank_oc, ROW_NUMBER() OVER (PARTITION BY m."Merged_wbs_categories" ORDER BY cj.period DESC) AS rank_project
-            FROM stg_master_mapping m LEFT JOIN stg_cj74_agg cj ON (m.single_wbs = cj.clean_wbs AND m.cost_element = cj.cost_element) LEFT JOIN stg_cji5_agg ci ON (m.single_wbs = ci.clean_wbs AND m.cost_element = ci.cost_element) LEFT JOIN summary s ON (m."Merged_wbs_categories" = s."Merged_wbs_category")
-            WHERE cj.ptd_val IS NOT NULL OR ci.oc_val IS NOT NULL OR s.asbl > 0
-        ) AS final_src
-    `;
-    await db.query(finalInsertSql);
 
-    // Phase 5: Flush Cache & Sync Drilldowns
-    filterCache.flushAll(); 
-    if (typeof exports.syncDrilldownTables === 'function') {
+        const finalInsertSql = `
+            INSERT INTO final_dashboard_table 
+            (id, bu, customer, loa_id, loa_name, cost_revenue, categories, merged_wbs, active_inactive, 
+             asbl, asbl_amc, asbl_project, asbl_warranty, asbl_loa, non_committed, non_committed_amc, 
+             non_committed_project, non_committed_warranty, non_committed_editable, period, ptd, 
+             wbs_element_single, wbs_type, wbs_description, open_commitment_KEUR, eac, eac_vs_asbl, "Merged_wbs_categories")
+            
+            SELECT 
+                CONCAT(m.loa_id, '-', m.categories, '-', src.period) as id,
+                m.bu, m.customer, m.loa_id, m.loa_name, m.mapped_cost_revenue, m.categories, m.merged_wbs, 
+                COALESCE(s.active_inactive, 'Active'),
+                CASE WHEN rank_project = 1 THEN COALESCE(s.asbl, 0) ELSE 0 END,
+                CASE WHEN rank_project = 1 THEN COALESCE(s.asbl_amc, 0) ELSE 0 END,
+                CASE WHEN rank_project = 1 THEN COALESCE(s.asbl_project, 0) ELSE 0 END,
+                CASE WHEN rank_project = 1 THEN COALESCE(s.asbl_warranty, 0) ELSE 0 END,
+                CASE WHEN rank_project = 1 THEN COALESCE(s.asbl_loa, 0) ELSE 0 END,
+                CASE WHEN rank_project = 1 THEN COALESCE(s.non_committed, 0) ELSE 0 END,
+                CASE WHEN rank_project = 1 THEN COALESCE(s.non_committed_amc, 0) ELSE 0 END,
+                CASE WHEN rank_project = 1 THEN COALESCE(s.non_committed_project, 0) ELSE 0 END,
+                CASE WHEN rank_project = 1 THEN COALESCE(s.non_committed_warranty, 0) ELSE 0 END,
+                CASE WHEN rank_project = 1 THEN COALESCE(s.non_committed_editable, 0) ELSE 0 END,
+                src.period,
+                src.ptd_sum as ptd,
+                m.single_wbs, m.wbs_type, m.wbs_description,
+                src.oc_sum as open_commitment_KEUR,
+                (src.ptd_sum + src.oc_sum + (CASE WHEN rank_project = 1 THEN COALESCE(s.non_committed_editable, 0) ELSE 0 END)) as eac,
+                (CASE WHEN rank_project = 1 THEN COALESCE(s.asbl, 0) ELSE 0 END - (src.ptd_sum + src.oc_sum + (CASE WHEN rank_project = 1 THEN COALESCE(s.non_committed_editable, 0) ELSE 0 END))) as eac_vs_asbl,
+                m."Merged_wbs_categories"
+            FROM (
+                -- 🟢 Sabse important step: PTD aur OC ko pehle hi merge kar lo
+                SELECT clean_wbs, cost_element, period, SUM(ptd_v) as ptd_sum, SUM(oc_v) as oc_sum
+                FROM (
+                    SELECT clean_wbs, cost_element, period, ptd_val as ptd_v, 0 as oc_v FROM stg_cj74_agg
+                    UNION ALL
+                    -- Future OC ko Latest Period mein shift karo
+                    SELECT clean_wbs, cost_element, 
+                        CASE WHEN period > '${sysLastPeriod}' THEN '${sysLastPeriod}' ELSE period END as period, 
+                        0 as ptd_v, oc_val as oc_v FROM stg_cji5_agg
+                ) t
+                GROUP BY 1, 2, 3
+            ) src
+            JOIN stg_master_mapping m ON (src.clean_wbs = m.single_wbs AND src.cost_element = m.cost_element)
+            LEFT JOIN summary s ON (m."Merged_wbs_categories" = s."Merged_wbs_category")
+            -- Rank logic for Budget distribution
+            CROSS JOIN LATERAL (
+                SELECT ROW_NUMBER() OVER (PARTITION BY m."Merged_wbs_categories", src.period ORDER BY src.period) as rank_project
+            ) r;
+        `;
+        await db.query(finalInsertSql);
+        
+        filterCache.flushAll(); 
         await exports.syncDrilldownTables();
+        await db.query("SET statement_timeout = 0");
+        console.log("✅ Sync Done! Data is now perfectly aligned.");
+
+    } catch (error) {
+        console.error("❌ Sync Error:", error.message);
+        throw error;
     }
 };
 
@@ -768,6 +819,10 @@ exports.fullRefresh = async (req, res) => {
 exports.syncDrilldownTables = async () => {
     try {
         console.log("🔄 Syncing Drilldown Tables (PostgreSQL Direct)...");
+
+        // 1. Get Latest Reporting Period (LRP) from PTD data
+        const [maxRow] = await db.query("SELECT MAX(period) as lrp FROM stg_cj74_agg");
+        const lrp = maxRow[0]?.lrp || 'N/A';
 
         await db.query("TRUNCATE TABLE t_cj74_transformed");
         await db.query(`
@@ -809,13 +864,21 @@ exports.syncDrilldownTables = async () => {
         await db.query(`
             INSERT INTO t_cji5_transformed (
                 id, project_def, sap_wbs, refdocno, item, co_object_name, supplier, name, exch_rate, 
-                year, per, cost_element, cost_element_descr, matl_group, material, description, 
+                year, per, period, -- 🔥 Added period column here
+                cost_element, cost_element_descr, matl_group, material, description, 
                 user_name, docc, quantity, qty_plan, debit_date, doc_date, cocode, report_currency, 
                 val_in_rep_cur, tcurr, value_tcur, obj_curr, value_in_obj_crcy, oc_val, loa_id, wbs_type, categories
             )
             SELECT 
                 c.id, c.project_def, TRIM(c.wbs_element) AS sap_wbs, c.refdocno, c.item, 
-                c.co_object_name, c.supplier, c.name, c.exch_rate, c.year, c.per, c.cost_element, 
+                c.co_object_name, c.supplier, c.name, c.exch_rate, c.year, c.per,
+                -- 🔥 SMART LOGIC: If period is in future (> LRP), map it to LRP
+                CASE 
+                    WHEN TRIM(CONCAT(c.year, '-P', LPAD(c.per::text, 3, '0'))) > '${lrp}'
+                    THEN '${lrp}'
+                    ELSE TRIM(CONCAT(c.year, '-P', LPAD(c.per::text, 3, '0')))
+                END AS period,
+                c.cost_element, 
                 c.cost_element_descr, c.matl_group, c.material, c.description, c.user_name, c.docc, 
                 c.quantity, c.qty_plan, c.debit_date, c.doc_date, c.cocode, c.report_currency, 
                 c.val_in_rep_cur, c.tcurr, c.value_tcur, c.obj_curr, c.value_in_obj_crcy, 
@@ -832,7 +895,7 @@ exports.syncDrilldownTables = async () => {
             ) cm ON TRIM(c.cost_element) = TRIM(cm.cost_element)
         `);
 
-        console.log("✅ Drilldown Tables Synced on PostgreSQL!");
+        console.log("✅ Drilldown Tables Synced with Smart Period Mapping!");
     } catch (err) {
         console.error("❌ Error in syncing Drilldown tables:", err);
     }
@@ -868,15 +931,13 @@ const buildDrilldownConditions = (filters, tableName) => {
     }
 
     // 3. Period Filter
+    // 3. 🔥 CLEAN PERIOD FILTER: Matches strictly against stored 'period' column
     const periods = getArray(filters.period).map(v => v.toLowerCase());
     if (periods.length > 0) {
-        if (tableName === 't_cj74_transformed') {
-            conds.push(`TRIM(LOWER(period)) IN (?)`);
-            params.push(periods);
-        } else {
-            conds.push(`TRIM(LOWER(CONCAT(year, '-P', LPAD(per::text, 3, '0')))) IN (?)`);
-            params.push(periods);
-        }
+        // Dono tables (cj74 aur cji5) mein ab physical column 'period' hai.
+        // CJI5 mein future data ab LRP wali value hi hold kar raha hai (due to sync logic).
+        conds.push(`TRIM(LOWER(period)) IN (?)`);
+        params.push(periods);
     }
 
     return { 
@@ -1072,10 +1133,15 @@ exports.getAsblActivityLogs = async (req, res) => {
 // server/controllers/dataController.js
 exports.getProjectActivityLogs = async (req, res) => {
     try {
-        // 🔥 Ensure karein ki 'single_wbs' column query mein aa raha ho
-        const [rows] = await db.query(`SELECT id, user_email, loa_id, loa_name, action_mode, wbs_count, month_year, single_wbs, created_at FROM project_activity_logs ORDER BY created_at DESC`);
+        const [rows] = await db.query(`
+            SELECT id, user_email, bu, customer, loa_id, loa_name, wbs_type, action_mode, wbs_count, month_year, single_wbs, created_at
+            FROM project_activity_logs
+            ORDER BY created_at DESC
+        `);
         res.json(rows);
-    } catch (error) { res.status(500).json({ error: error.message }); }
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
 };
 
 exports.getPendingUsers = async (req, res) => {
@@ -1443,7 +1509,16 @@ exports.getDashboardFilters = async (req, res) => {
         const [customerRows]= await db.query(`SELECT DISTINCT customer FROM final_dashboard_table ${custQ.whereSql} AND customer IS NOT NULL ORDER BY customer ASC`, custQ.params);
 
         const perQ          = buildConditions('period');
-        const [periodRows]  = await db.query(`SELECT DISTINCT period FROM final_dashboard_table ${perQ.whereSql} AND period IS NOT NULL ORDER BY period DESC`, perQ.params);
+        const [periodRows] = await db.query(`
+            SELECT DISTINCT period 
+            FROM final_dashboard_table 
+            ${perQ.whereSql} 
+            -- 🔥 FIX: Sirf wahi periods dikhao jo actual reporting periods hain
+            AND ptd > 0 
+            AND period IS NOT NULL 
+            AND period <> 'N/A'
+            ORDER BY period DESC
+        `, perQ.params);
 
         const loaIdQ        = buildConditions('loa_id');
         const [loaIdRows]   = await db.query(`SELECT DISTINCT loa_id FROM final_dashboard_table ${loaIdQ.whereSql} AND loa_id IS NOT NULL ORDER BY loa_id ASC`, loaIdQ.params);

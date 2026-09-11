@@ -115,7 +115,20 @@ const Logs = ({ user }) => {
             } else if (activeTab === 'asbl') {
                 return { User: row.user_email, LOA_ID: row.loa_id, LOA_Name: row.loa_name, WBS_Type: row.wbs_type, Category: row.categories, Old_ASBL: row.old_value, New_ASBL: row.new_value, Month: row.month_year, Time: new Date(row.created_at).toLocaleString() };
             } else {
-                return { 'LOA ID': row.loa_id, 'Project Name': row.loa_name, 'Action': row.action_mode, 'WBS Elements': row.single_wbs, 'User': row.user_email, 'Month': row.month_year };
+                // 🔥 NAYA: Added BU, Customer, WBS Type to Export Excel
+                return { 
+                    'BU': row.bu || '-',
+                    'Customer': row.customer || '-',
+                    'LOA ID': row.loa_id, 
+                    'Project Name': row.loa_name, 
+                    'WBS Type': row.wbs_type || '-',
+                    'Action': row.action_mode, 
+                    'WBS Count': row.wbs_count, 
+                    'WBS Elements': row.single_wbs, 
+                    'User': row.user_email, 
+                    'Month': row.month_year,
+                    'Time': new Date(row.created_at).toLocaleString()
+                };
             }
         });
         const worksheet = XLSX.utils.json_to_sheet(exportData);
@@ -210,8 +223,11 @@ const Logs = ({ user }) => {
                                         </>
                                     ) : (
                                         <>
+                                            <th className="p-4 text-[13px] uppercase">BU</th>
+                                            <th className="p-4 text-[13px] uppercase">CUSTOMER</th>
                                             <th className="p-4 text-[13px] uppercase text-blue-300">LOA ID</th>
                                             <th className="p-4 text-[13px] uppercase">LOA Name</th>
+                                            <th className="p-4 text-[13px] uppercase">WBS TYPE</th>
                                             <th className="p-4 text-[13px] uppercase">Action</th>
                                             <th className="p-4 text-[13px] uppercase text-center">WBS Count</th>
                                             <th className="p-4 text-[13px] uppercase">WBS Elements</th>
@@ -255,9 +271,27 @@ const Logs = ({ user }) => {
                                             </>
                                         ) : (
                                             <>
+                                                {/* 🔥 NAYA: BU */}
+                                                <td className="p-4 font-bold text-[14px]">{row.bu || '-'}</td>
+                                                
+                                                {/* 🔥 NAYA: Customer */}
+                                                <td className="p-4 text-[14px] truncate max-w-[140px]" title={row.customer}>{row.customer || '-'}</td>
+                                                
                                                 <td className="p-4 font-black text-blue-700 text-[14px]">{row.loa_id}</td>
-                                                <td className="p-4 text-[14px] truncate max-w-[200px]">{row.loa_name}</td>
-                                                <td className="p-4"><span className={`px-2 py-0.5 rounded text-[10px] font-black ${row.action_mode === 'New Project' ? 'bg-blue-100 text-blue-700' : 'bg-indigo-100 text-indigo-700'}`}>{row.action_mode}</span></td>
+                                                <td className="p-4 text-[14px] truncate max-w-[200px]" title={row.loa_name}>{row.loa_name}</td>
+                                                
+                                                {/* 🔥 NAYA: WBS Type Badge */}
+                                                <td className="p-4">
+                                                    <span className="bg-purple-100 text-purple-700 px-2.5 py-0.5 rounded-md text-[12px] font-black">
+                                                        {row.wbs_type || '-'}
+                                                    </span>
+                                                </td>
+                                                
+                                                <td className="p-4">
+                                                    <span className={`px-2 py-0.5 rounded text-[10px] font-black ${row.action_mode === 'New Project' ? 'bg-blue-100 text-blue-700' : 'bg-indigo-100 text-indigo-700'}`}>
+                                                        {row.action_mode}
+                                                    </span>
+                                                </td>
                                                 <td className="p-4 text-center font-bold text-[14px]">{row.wbs_count}</td>
                                                 <td className="p-4 text-[12px] text-slate-500 italic truncate max-w-[200px]" title={row.single_wbs}>{row.single_wbs || '-'}</td>
                                                 <td className="p-4 text-xs font-bold text-slate-600">{row.user_email}</td>

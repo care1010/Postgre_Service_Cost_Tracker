@@ -5,21 +5,6 @@ const { triggerAutoSync } = require('./cronController');
 
 const EXCLUDED_WBS_TYPES_FOR_CJ74 = ['Warranty', 'Warranty/Other'];
 
-// ═════════════════════════════════════════════════════════════════════════
-// 🔥 N-1 PERIOD CALCULATOR (Handles Jan -> Dec & Year Rollover Safely)
-// ═════════════════════════════════════════════════════════════════════════
-const getNMinusOnePeriod = () => {
-    const d = new Date();
-    d.setDate(1); // 🔥 Date ko 1st set kiya taaki 28/29/30/31st month overflow bug na aaye
-    d.setMonth(d.getMonth() - 1); // 1 Month peeche gaye (e.g. Sep -> Aug, Jan -> Dec)
-
-    const year = d.getFullYear(); // e.g. 2026 (or 2026 if Jan 2027)
-    const per = (d.getMonth() + 1).toString(); // e.g. '8' for Aug, '12' for Dec (No leading zeros, matching DB)
-    const monthYear = d.toLocaleString('en-US', { month: 'short' }) + '-' + year; // e.g. 'Aug-2026'
-
-    return { year, per, monthYear };
-};
-
 // 🔥 INTERNAL HELPER: Copy of applyRLS (PostgreSQL Compatible)
 const applyRLS = (type, allowedCustomers, conditions, params) => {
     if (type === 'super_admin') return;
@@ -27,6 +12,7 @@ const applyRLS = (type, allowedCustomers, conditions, params) => {
     if (allowedCustomers && typeof allowedCustomers === 'string') {
         const customersArray = allowedCustomers.split('|||').map(c => c.trim().toLowerCase()).filter(Boolean);
         if (customersArray.length > 0) {
+            // 🔥 FIXED: Table 'customer' mein column 'customer_name' h
             conditions.push(`TRIM(LOWER(customer_name)) IN (?)`); 
             params.push(customersArray);
             return;
@@ -42,9 +28,10 @@ const runBackgroundSync = async (processedLoas, projectGroups, created_by) => {
     console.log("🕒 [BACKGROUND]: Processing started for LOAs:", processedLoas);
     const connection = await db.getConnection();
     try {
+        // 🔥 CRITICAL: Disable timeout for this heavy background task
         await connection.query('SET statement_timeout = 0'); 
 
-        // 1. Get all cost elements
+        // 1. Get all 17 elements
         const [ceRows] = await connection.query(`
             SELECT cost_element FROM master_cost_element
             UNION 
@@ -52,7 +39,7 @@ const runBackgroundSync = async (processedLoas, projectGroups, created_by) => {
         `);
         const costElements = ceRows.map(r => r.cost_element);
 
-        // 2. Start seeding process (with N-1 period)
+        // 2. Start seeding process
         for (const loaId of processedLoas) {
             const project = projectGroups[loaId]; 
             if (project && project.wbs_rows && project.wbs_rows.length > 0) {
@@ -93,13 +80,13 @@ const runBackgroundSync = async (processedLoas, projectGroups, created_by) => {
 };
 
 /**
- * 🔥 FIXED: Seeding dummy data in CJ74 (Now using N-1 Year & Period!)
+ * 🔥 FIXED: Seeding dummy data in CJ74 (7 Columns Matching Schema)
  */
 const insertCj74DummyData = async (connection, newWbsList, costElements) => {
     if (newWbsList.length === 0 || costElements.length === 0) return;
     
-    // 🔥 N-1 Period Calculation (e.g. year: 2026, per: '8')
-    const { year, per } = getNMinusOnePeriod();
+    const currentYear = new Date().getFullYear();
+    const currentMonth = (new Date().getMonth() + 1).toString().padStart(3, '0');
     let cj74BatchRows = [];
 
     for (const wbsObj of newWbsList) {
@@ -110,9 +97,10 @@ const insertCj74DummyData = async (connection, newWbsList, costElements) => {
 
         if (!EXCLUDED_WBS_TYPES_FOR_CJ74.some(ex => ex.toLowerCase() === type.toLowerCase())) {
             for (const ce of costElements) {
+                // 🔥 FIXED: 7 Columns mapping to match: (year, per, cost_element, object_1, object_2, object_3, val_in_rc)
                 cj74BatchRows.push([
-                    year,  // 🔥 N-1 Year (e.g. 2026)
-                    per,   // 🔥 N-1 Period (e.g. '8')
+                    currentYear, 
+                    currentMonth, 
                     ce, 
                     wbsId, // object_1
                     wbsId, // object_2
@@ -125,11 +113,12 @@ const insertCj74DummyData = async (connection, newWbsList, costElements) => {
 
     if (cj74BatchRows.length > 0) {
         try {
+            // 🔥 FIXED SQL: Added object_3 column to the list
             await connection.query(
                 'INSERT INTO cj74_new (year, per, cost_element, object_1, object_2, object_3, val_in_rc) VALUES ? ON CONFLICT DO NOTHING', 
                 [cj74BatchRows]
             );
-            console.log(`✅ [CJ74_NEW]: Seeded ${cj74BatchRows.length} dummy rows for N-1 Period (${year}-P${per}).`);
+            console.log(`✅ [CJ74_NEW]: Seeded ${cj74BatchRows.length} rows successfully.`);
         } catch (dbErr) {
             console.error("❌ [CJ74_NEW SEED ERROR]:", dbErr.message);
         }
@@ -140,6 +129,7 @@ const insertCj74DummyData = async (connection, newWbsList, costElements) => {
  * Helper: Sync WBS mappings
  */
 const syncProjectWbs = async (connection, loa_id, loa_name) => {
+    // 1. Get ALL unique single_wbs for this project
     const [rows] = await connection.query(
         'SELECT DISTINCT TRIM(single_wbs) as wbs FROM wbs_loa_id_mapping1 WHERE loa_id = ? AND loa_name = ?',
         [loa_id, loa_name]
@@ -150,11 +140,14 @@ const syncProjectWbs = async (connection, loa_id, loa_name) => {
     
     const mergedWbsStr = uniqueWbsList.sort().join(',');
 
+    // 2. Update Mapping Table
     await connection.query(
         'UPDATE wbs_loa_id_mapping1 SET merged_wbs = ? WHERE loa_id = ? AND loa_name = ?',
         [mergedWbsStr, loa_id, loa_name]
     );
 
+    // 3. Update Summary Table
+    // 🔥 FIXED: Added ::text casting for Postgres to determine data type correctly
     await connection.query(`
         UPDATE summary 
         SET merged_wbs = ?::text,
@@ -165,8 +158,10 @@ const syncProjectWbs = async (connection, loa_id, loa_name) => {
     return mergedWbsStr;
 };
 
+
+
 /**
- * 🔥 CORE PROCESSING ENGINE (With N-1 Period for Activity Logs)
+ * 🔥 CORE PROCESSING ENGINE (Fixed Scope & Error handling)
  */
 const processProjectData = async (dataGrid, created_by, mode) => {
     if (!dataGrid || dataGrid.length < 2) throw new Error("No data found!");
@@ -183,6 +178,7 @@ const processProjectData = async (dataGrid, created_by, mode) => {
     const projectGroups = {};
     let lBu = "", lCust = "", lLid = "", lLname = "";
 
+    // 1. Grouping and Internal Duplicate Check for user input
     dataGrid.slice(1).forEach(cols => {
         if (cols.every(c => !c || String(c).trim() === '')) return;
         const rLid = cols[idxLoaId]?.toString().trim();
@@ -206,16 +202,17 @@ const processProjectData = async (dataGrid, created_by, mode) => {
 
     const connection = await db.getConnection();
     
+    // 🔥 FIX: Defined variables properly so it won't crash
     let processedCount = 0; 
     let warnings = []; 
     let processedLoas = [];
     let backgroundGroups = {}; 
 
     try {
-        // 🔥 REVERTED: Activity logs ab hamesha CURRENT month-year pick karega (e.g. 'Sep-2026')
+
+        // 🔥 FIX: monthYear define kiya CURRENT_TIMESTAMP ke basis pe (mmm-yyyy format)
         const now = new Date();
         const monthYear = now.toLocaleString('en-US', { month: 'short' }) + '-' + now.getFullYear();
-
         await connection.beginTransaction();
         const [catRows] = await connection.query("SELECT category_name as cat, cost_revenue_type as type FROM master_categories");
         
@@ -235,14 +232,13 @@ const processProjectData = async (dataGrid, created_by, mode) => {
                 const mRows = project.wbs_rows.map(r => [project.bu, project.customer, project.loa_id, project.loa_name, r.wbs_type, r.wbs_element, r.wbs_description, mergedWbs, created_by]);
                 await connection.query("INSERT INTO wbs_loa_id_mapping1 (bu, customer, loa_id, loa_name, wbs_type, single_wbs, wbs_description, merged_wbs, created_by) VALUES ? ", [mRows]);
 
-                // 🔥 Log entry with N-1 month_year
-                const wbsListStr = project.wbs_rows.map(r => r.wbs_element).join(', ');
-                const wbsTypeStr = [...new Set(project.wbs_rows.map(r => r.wbs_type))].filter(Boolean).join(', ');
+                // 🔥 NAYA: Log entry (monthYear ab defined hai)
+                // 🔥 FIXED: Added 'single_wbs' column and '?' placeholder (Total 7)
+                const wbsListStr = project.wbs_rows.map(r => r.wbs_element).join(', '); // WBS list prepare ki
 
-                // 🔥 Added 'bu' and 'customer' (Total 9 parameters)
                 await connection.query(
-                    `INSERT INTO project_activity_logs (user_email, bu, customer, loa_id, loa_name, action_mode, wbs_count, month_year, single_wbs, wbs_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                    [created_by, project.bu, project.customer, loaId, project.loa_name, 'New Project', project.wbs_rows.length, monthYear, wbsListStr, wbsTypeStr]
+                    `INSERT INTO project_activity_logs (user_email, loa_id, loa_name, action_mode, wbs_count, month_year, single_wbs) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+                    [created_by, loaId, project.loa_name, 'New Project', project.wbs_rows.length, monthYear, wbsListStr]
                 );
                 
                 processedLoas.push(loaId);
@@ -269,15 +265,14 @@ const processProjectData = async (dataGrid, created_by, mode) => {
                 await connection.query("INSERT INTO wbs_loa_id_mapping1 (bu, customer, loa_id, loa_name, wbs_type, single_wbs, wbs_description, merged_wbs, created_by) VALUES ?", [mRows]);
                 await syncProjectWbs(connection, loaId, project.loa_name);
 
-                // 🔥 Log entry with N-1 month_year
-                const newWbsListStr = newWbsToMap.map(r => r.wbs_element).join(', ');
-                // 🔥 NAYA: Extract unique WBS types for newly added WBS
-                const newWbsTypeStr = [...new Set(newWbsToMap.map(r => r.wbs_type))].filter(Boolean).join(', ');
+                // 🔥 NAYA: Log entry (monthYear ab defined hai)
+                    // 🔥 FIXED: Added 'single_wbs' column and '?' placeholder (Total 7)
+                    const newWbsListStr = newWbsToMap.map(r => r.wbs_element).join(', '); // Only newly added WBS
 
-                await connection.query(
-                    `INSERT INTO project_activity_logs (user_email, bu, customer, loa_id, loa_name, action_mode, wbs_count, month_year, single_wbs, wbs_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                    [created_by, project.bu, project.customer, loaId, project.loa_name, 'Added WBS', newWbsToMap.length, monthYear, newWbsListStr, newWbsTypeStr]
-                );
+                    await connection.query(
+                        `INSERT INTO project_activity_logs (user_email, loa_id, loa_name, action_mode, wbs_count, month_year, single_wbs) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+                        [created_by, loaId, project.loa_name, 'Added WBS', newWbsToMap.length, monthYear, newWbsListStr]
+                    );
                 
                 processedLoas.push(loaId);
                 backgroundGroups[loaId] = { ...project, wbs_rows: newWbsToMap };
@@ -292,6 +287,7 @@ const processProjectData = async (dataGrid, created_by, mode) => {
             runBackgroundSync(processedLoas, backgroundGroups, created_by);
         }
 
+        // Return standard feedback
         let finalMessage = processedCount > 0 
             ? "Data Submitted! Data will be refresh in 5 minutes." 
             : "No data was updated.";
@@ -314,8 +310,9 @@ const processProjectData = async (dataGrid, created_by, mode) => {
 
 exports.processProjectPaste = async (req, res) => {
     try {
-        const { rawText, mode, email } = req.body;
+        const { rawText, mode, email } = req.body; // 🔥 'email' extract karein
         const dataGrid = rawText.trim().split(/\r?\n/).map(l => l.split('\t'));
+        // req.user?.email fallback ke liye rakha hai, primary 'email' hoga
         const currentUser = email || req.user?.email || 'System'; 
         const result = await processProjectData(dataGrid, currentUser, mode);
         res.status(200).json(result);
@@ -324,7 +321,7 @@ exports.processProjectPaste = async (req, res) => {
 
 exports.uploadProjectFile = async (req, res) => {
     try {
-        const { mode, email } = req.body;
+        const { mode, email } = req.body; // 🔥 Multer req.body mein fields de deta hai
         const wb = XLSX.readFile(req.file.path);
         const dataGrid = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: "" });
         const result = await processProjectData(dataGrid, req.user?.email || 'System', mode);
@@ -360,14 +357,18 @@ exports.getAddProjectOptions = async (req, res) => {
     try {
         const { type, allowedCustomers } = req.query;
         
+        // 1. BU fetch
         const [buRows] = await db.query(`SELECT DISTINCT bu FROM wbs_loa_id_mapping1 WHERE bu IS NOT NULL ORDER BY 1`);
 
+        // 2. Customer fetch with RLS
         let custConditions = ["customer_name IS NOT NULL"];
         let custParams = [];
         applyRLS(type, allowedCustomers, custConditions, custParams);
         const whereCust = custConditions.length > 0 ? `WHERE ${custConditions.join(' AND ')}` : '';
         const [custRows] = await db.query(`SELECT DISTINCT customer_name FROM public.customer ${whereCust} ORDER BY 1`, custParams);
 
+        // 3. LOA ID & Name fetch with RLS (Mapping table se)
+        // Note: Mapping table mein column 'customer' h
         let loaConditions = ["loa_id IS NOT NULL"];
         let loaParams = [];
         if (type !== 'super_admin' && allowedCustomers) {
@@ -398,13 +399,17 @@ exports.testPtdSeeding = async (req, res) => {
     let connection;
     try {
         connection = await db.getConnection();
-        const { year, per } = getNMinusOnePeriod(); // 🔥 N-1 logic here too
+        console.log("🛠️ Starting Multi-DB Smart Seeding (Fixed Data Types)...");
+ 
+        // Javascript se Year aur Month nikalna sabse safe h (Integer vs String error nahi aayega)
+        const currentYear = new Date().getFullYear();
+        const currentMonth = (new Date().getMonth() + 1).toString();
  
         const sql = `
             INSERT INTO cj74_new (year, per, object_1, object_2, cost_element, val_in_rc)
             SELECT
-                ${year},
-                '${per}',
+                ${currentYear},
+                '${currentMonth}',
                 ideal.single_wbs,
                 ideal.single_wbs,
                 ideal.ce_code,
@@ -431,9 +436,11 @@ exports.testPtdSeeding = async (req, res) => {
         const [result] = await connection.query(sql);
         const insertedRows = result.affectedRows || result.rowCount || 0;
  
+        console.log(`✅ Success! Data Type issue resolved. Added ${insertedRows} rows.`);
+ 
         res.status(200).json({
             success: true,
-            message: `17-Category Sync Complete for Period ${year}-P${per}!`,
+            message: "17-Category Sync Complete (Multi-DB Safe)!",
             new_rows_inserted: insertedRows
         });
  

@@ -23,7 +23,7 @@ const CJI5_COLS = [
     { data: 'item', title: 'ITEM' }, { data: 'co_object_name', title: 'CO_OBJECT_NAME' },
     { data: 'supplier', title: 'SUPPLIER' }, { data: 'name', title: 'NAME' },
     { data: 'exch_rate', title: 'EXCH_RATE' }, { data: 'year', title: 'YEAR' },
-    { data: 'per', title: 'PER' }, { data: 'cost_element', title: 'COST_ELEMENT' },
+    { data: 'per', title: 'PER' }, { data: 'period', title: 'Period' }, { data: 'cost_element', title: 'COST_ELEMENT' },
     { data: 'cost_element_descr', title: 'COST_ELEMENT_DESCR' }, { data: 'matl_group', title: 'MATL GROUP' },
     { data: 'material', title: 'MATERIAL' }, { data: 'description', title: 'DESCRIPTION' },
     { data: 'user_name', title: 'USER_NAME' }, { data: 'docc', title: 'DOCC' },

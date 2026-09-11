@@ -39,6 +39,7 @@ const CJI5_COLS = [
     { data: 'project_def',         title: 'PROJ DEF' },
     { data: 'sap_wbs',             title: 'WBS' },
     { data: 'oc_val',              title: 'OC VAL (K€)', className: 'text-right' },
+    { data: 'period',              title: 'Period' }, // 🔥 Naya column added
     { data: 'refdocno',            title: 'REFDOCNO' },
     { data: 'item',                title: 'ITEM' },
     { data: 'co_object_name',      title: 'CO_OBJECT_NAME' },
