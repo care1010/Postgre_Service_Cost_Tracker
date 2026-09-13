@@ -45,7 +45,7 @@ const PtdAutomation = () => {
             title: 'Processing File...',
             html: `
                 <div style="margin-top:10px">
-                    Processing Excel and Updating MySQL...
+                    Processing and Updating Dashboard....
                 </div>
             `,
             allowOutsideClick: false,

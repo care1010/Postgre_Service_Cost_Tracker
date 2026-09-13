@@ -4,7 +4,7 @@ const transporter = require("../config/mailer");
 
 const TOOL_NAME = "NI INDIA Financial Cost Tracker";
 
-const TOOL_LINK = "http://10.68.32.105:3001/";
+const TOOL_LINK = "http://10.68.32.163:3000/";
 
 //---- Send Access Request Mailer to Admins (Neha, Mohsin) ----
 const sendAccessRequestMail = async (request) => {
@@ -13,7 +13,7 @@ const sendAccessRequestMail = async (request) => {
 
         from: '"NI INDIA Financial Cost Tracker" <care.ni_india@nokia.com>',
 
-        to: ["shraddha.dubey@nokia.com", "neha.sain.ext@nokia.com", "mohsin.1.khan.ext@nokia.com"],
+        to: ["neha.sain.ext@nokia.com"],
 
         bcc: "care.ni_india@nokia.com",
 
@@ -117,7 +117,7 @@ const sendApprovalMail = async (request) => {
 
         to: request.email,
 
-        cc: ["shraddha.dubey@nokia.com", "neha.sain.ext@nokia.com", "mohsin.1.khan.ext@nokia.com"],
+        cc: ["neha.sain.ext@nokia.com"],
         bcc: "care.ni_india@nokia.com",
 
         subject: `Access Approved - NI INDIA Financial Cost Tracker`,
@@ -196,7 +196,7 @@ const sendDeclineMail = async (request) => {
 
         to: request.email,
 
-        cc: ["shraddha.dubey@nokia.com", "neha.sain.ext@nokia.com", "mohsin.1.khan.ext@nokia.com"],
+        cc: ["neha.sain.ext@nokia.com"],
         bcc: "care.ni_india@nokia.com",
 
         subject: `Access Request Update - NI INDIA Financial Cost Tracker`,
@@ -301,7 +301,7 @@ const sendCustomerUtilizationAlert = async (recipients, customerName, alertsList
     const mailOptions = {
         from: '"NI INDIA Cost Tracker Alert" <care.ni_india@nokia.com>',
         to: recipients,
-        cc: ["shraddha.dubey@nokia.com", "neha.sain.ext@nokia.com", "mohsin.1.khan.ext@nokia.com"],
+        cc: ["neha.sain.ext@nokia.com"],
         bcc: "care.ni_india@nokia.com",
         subject: `⚠️ Action Required: PTD UTIL % || EAC vs ASBL % - ${customerName}`,
         html: `
@@ -355,20 +355,20 @@ const sendCustomerUtilizationAlert = async (recipients, customerName, alertsList
 // FTC update mailer for PTD update notification to all stakeholders (BGDM, PM, Admin)
 const sendPTDUpdateAlert = async (recipientEmails, periodCode) => {
     const now = new Date();
-    const monthName = now.toLocaleString('en-US', { month: 'long' });
-    const deadlineDate = `15th ${monthName}`;
+    const monthName = now.toLocaleString('en-US', { month: 'long' }); // e.g., "September"
+    const deadlineDate = `15th ${monthName}`; // e.g., "15th September"
 
     const mailOptions = {
         from: '"NI INDIA Financial Cost Tracker" <care.ni_india@nokia.com>',
-        to: recipientEmails, // List from controller
-        cc: ["shraddha.dubey@nokia.com", "neha.sain.ext@nokia.com", "mohsin.1.khan.ext@nokia.com"],
+        to: recipientEmails,
+        cc: ["neha.sain.ext@nokia.com"], // As per your latest code
         bcc: "care.ni_india@nokia.com",
-        subject: `NOTIFICATION: Non Committed for current month Updated - NI INDIA Financial Cost Tracker`,
+        subject: `NOTIFICATION: Non Committed for ${periodCode} Updated - NI INDIA Financial Cost Tracker`,
         html: `
         <div style="font-family: Calibri, Arial, sans-serif; font-size: 15px; color: #333; line-height: 1.6;">
             <p>Dear Team,</p>
             <p>PTD for <strong>${periodCode}</strong> has been updated in NI INDIA Financial Cost Tracker.
-               Please check and provide forecast data to complete cost by <strong>${deadlineDate}</strong>.
+               Please check and provide forecast data (Non Committed) to complete cost by <strong>${deadlineDate}</strong>.
             </p>
             <div style="text-align:center; margin:35px 0;">
                 <a href="${TOOL_LINK}" style="background:#124191; color:#ffffff; padding:14px 40px; text-decoration:none; font-weight:bold; border-radius:8px; display:inline-block; font-size:16px;">
@@ -378,7 +378,6 @@ const sendPTDUpdateAlert = async (recipientEmails, periodCode) => {
             <p>Best Regards,<br><strong>NI INDIA PMO Team</strong></p>
         </div>`
     };
-
     return transporter.sendMail(mailOptions);
 };
 
@@ -393,7 +392,7 @@ const sendPTDReminderAlert = async (recipientEmails, periodCode) => {
         from: '"NI INDIA Financial Cost Tracker" <care.ni_india@nokia.com>',
         // 🔥 TO: Ab ye dynamic filtered list receive karega
         to: recipientEmails, 
-        cc: ["shraddha.dubey@nokia.com", "neha.sain.ext@nokia.com", "mohsin.1.khan.ext@nokia.com"], // Testing ke liye rakha hai
+        cc: ["neha.sain.ext@nokia.com"], // Testing ke liye rakha hai
         bcc: "care.ni_india@nokia.com",
         subject: `⚠️ REMINDER: PTD for ${periodCode} Action Required`,
         html: `
@@ -421,7 +420,7 @@ const sendMonthlyProjectAuditMail = async (adminEmails, excelBuffer, monthName) 
         from: '"NI INDIA Financial Cost Tracker" <care.ni_india@nokia.com>',
         // to: adminEmails, // List of all admins
         // 🔥 TESTING OVERRIDE: Sending only to Neha
-        to: ["shraddha.dubey@nokia.com", "neha.sain.ext@nokia.com", "mohsin.1.khan.ext@nokia.com"], 
+        to: ["neha.sain.ext@nokia.com"], 
         bcc: "care.ni_india@nokia.com",
         subject: `Last Month Added WBS List: New WBS Elements Added - ${monthName}`,
         html: `
@@ -459,8 +458,8 @@ const sendPendingLoaAuditMail = async (adminEmails, excelBuffer, monthYear) => {
     const mailOptions = {
         from: '"Financial Cost Tracker Audit" <care.ni_india@nokia.com>',
         // to: adminEmails, // Array of admins
-        to: "shraddha.dubey@nokia.com", 
-        cc: ["neha.sain.ext@nokia.com", "mohsin.1.khan.ext@nokia.com"], // 🔥 Required CC
+        to: "neha.sain.ext@nokia.com", 
+        cc: ["neha.sain.ext@nokia.com"], // 🔥 Required CC
         bcc: "care.ni_india@nokia.com",
         subject: `⚠️ Action Required: Pending Loa names List with no Non Commited inputs - ${monthYear}`,
         html: `

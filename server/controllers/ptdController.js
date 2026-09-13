@@ -19,14 +19,11 @@ exports.uploadPtdData = async (req, res) => {
         const workbook = xlsx.readFile(req.file.path, { cellDates: true });
         const sheetNames = workbook.SheetNames;
 
-        // 🔥 1. Fetch all valid cost elements from master table
-        const [validCE] = await db.query("SELECT cost_element FROM master_cost_element");
-        const validCESet = new Set(validCE.map(r => String(r.cost_element).trim()));
-        const OTHER_CE = "64830010"; // "Other" category code
+        // 🔥 REMOVED: master_cost_element check and OTHER_CE hardcoding
 
         let affectedLoas = new Set();
-        const batchSize = 500; // Optimal for memory
-        let detectedPeriods = new Set(); // 🔥 Period tracking
+        const batchSize = 500; 
+        let detectedPeriods = new Set(); 
 
         // ==========================================
         // --- 1. CJI5 SHEET PROCESSING ---
@@ -38,18 +35,14 @@ exports.uploadPtdData = async (req, res) => {
             const cji5Rows = cji5Data.filter(row => row['WBS Element']).map(row => {
                 if (row['LOA_ID']) affectedLoas.add(row['LOA_ID'].toString().trim());
 
-                // 🔥 NAYA: Mapping Logic for CJI5
-                let currentCE = String(row['Cost elem.'] || '').trim();
-                // Agar Excel ka CE master table mein nahi hai, toh usey 'Other' bana do
-                if (currentCE && !validCESet.has(currentCE)) {
-                    currentCE = OTHER_CE;
-                }
+                // 🔥 FIXED: Direct raw value from Excel, no mapping/replacement
+                const currentCE = String(row['Cost elem.'] || '').trim();
 
                 return [
                     row['Project Def.'], row['WBS Element'], row['RefDocNo'], row['Item'],
                     row['CO object name'], row['Supplier'], row['Name'], row['Year'],
                     row['Per'],
-                    currentCE, // 🔥 Use mapped CE here
+                    currentCE, // RAW Cost Element
                     row['Cost element descr.'], row['Matl Group'],
                     row['Material'], row['Description'], row['User Name'], row['DocC'],
                     row['CoCode'], row['Exch. Rate'], row['Quantity'], row['Qty/plan'],
@@ -60,7 +53,6 @@ exports.uploadPtdData = async (req, res) => {
             });
 
             for (let i = 0; i < cji5Rows.length; i += batchSize) {
-                // 🔥 Bypass db.js parser by formatting here
                 const sql = pgFormat(`INSERT INTO cji5_new (project_def, wbs_element, refdocno, item, co_object_name, supplier, name, year, per, cost_element, cost_element_descr, matl_group, material, description, user_name, docc, cocode, exch_rate, quantity, qty_plan, debit_date, doc_date, report_currency, val_in_rep_cur, tcurr, value_tcur, obj_curr, value_in_obj_crcy) VALUES %L`, cji5Rows.slice(i, i + batchSize));
                 await db.query(sql); 
             }
@@ -73,17 +65,15 @@ exports.uploadPtdData = async (req, res) => {
         if (sheetNames.includes('CJ74')) {
             const cj74Data = xlsx.utils.sheet_to_json(workbook.Sheets['CJ74']);
 
+            // 🔥 NAYA: Current Upload Month-Year generate karo (e.g., "Sep-2026")
+            const uploadTimestamp = new Date().toLocaleString('en-US', { month: 'short' }) + '-' + new Date().getFullYear();
+
             const cj74Rows = cj74Data.filter(row => row['Object']).map(row => {
                 if (row['LOA_ID']) affectedLoas.add(row['LOA_ID'].toString().trim());
 
-                // 🔥 NAYA: Mapping Logic for CJ74
-                let currentCE = String(row['Cost Element'] || '').trim();
-                // Check against valid set
-                if (currentCE && !validCESet.has(currentCE)) {
-                    currentCE = OTHER_CE;
-                }
+                // 🔥 FIXED: Direct raw value from Excel, no mapping/replacement
+                const currentCE = String(row['Cost Element'] || '').trim();
 
-                // 🔥 FIXED: Period capture logic ab loop ke ANDAR hai jahan 'row' defined hai
                 const pValRaw = row['Per'] || row['per'] || row['PER'];
                 if (pValRaw) {
                     const pClean = pValRaw.toString().trim().padStart(3, '0');
@@ -93,19 +83,19 @@ exports.uploadPtdData = async (req, res) => {
                 return [
                     row['CoCd'], row['Year'], row['Per'], row['Project def.'], 
                     row['Object'], row['Object'], row['Object'], row['Profit Ctr'], 
-                    currentCE, // 🔥 Use mapped CE here
+                    currentCE, // RAW Cost Element
                     row['Cost element name'], row['Cost element descr.'], 
                     row['Pur. Doc.'], row['Purchase order text'], row['DocumentNo'], 
                     row['Material'], row['Material Description'], row['Name'], row['RefDocNo'], 
                     row['frm'], row['User Name'], row['Offst.acct'], row['Name of offsetting account'], 
                     row['Quantity'], formatExcelDate(row['Created on']), formatExcelDate(row['Postg Date']), 
                     formatExcelDate(row['Doc. Date']), row['TCurr'], row['Value TranCurr'], 
-                    row['ObCur'], row['Value in Obj. Crcy'], row['RCurr'], row['Val.in RC']
+                    row['ObCur'], row['Value in Obj. Crcy'], row['RCurr'], row['Val.in RC'], uploadTimestamp // 🔥 Naya data added to the row array
                 ];
             });
 
             for (let i = 0; i < cj74Rows.length; i += batchSize) {
-                const sql = pgFormat(`INSERT INTO cj74_new (cocd, year, per, proj_def, object_1, object_2, object_3, profit_ctr, cost_element, cost_element_name, cost_element_descr, pur_doc, purchase_order_text, document_no, material, material_description, name1, refdocno, frm, user_name, offst_acct, name_of_offsetting_account, quantity, created_on, postg_date, doc_date, tcurr, value_trancurr, obcur, val_in_obj_crcy, rcurr, val_in_rc) VALUES %L`, cj74Rows.slice(i, i + batchSize));
+                const sql = pgFormat(`INSERT INTO cj74_new (cocd, year, per, proj_def, object_1, object_2, object_3, profit_ctr, cost_element, cost_element_name, cost_element_descr, pur_doc, purchase_order_text, document_no, material, material_description, name1, refdocno, frm, user_name, offst_acct, name_of_offsetting_account, quantity, created_on, postg_date, doc_date, tcurr, value_trancurr, obcur, val_in_obj_crcy, rcurr, val_in_rc, upload_month_year) VALUES %L`, cj74Rows.slice(i, i + batchSize));
                 await db.query(sql);
                 console.log(`📦 CJ74: Batch ${Math.floor(i/batchSize) + 1} Done`);
             }
@@ -163,41 +153,36 @@ exports.uploadPtdData = async (req, res) => {
         // ==========================================
         // --- 4. 🔥 PRODUCTION AUTO-MAILER TRIGGER ---
         // ==========================================
-        let periodArray = Array.from(detectedPeriods);
-        console.log("🔍 [PTD]: Fetching all active users for notification...");
-
-        // Fallback logic for period
-        if (periodArray.length === 0) {
-            const curMonth = (new Date().getMonth() + 1).toString().padStart(3, '0');
-            periodArray.push(`P${curMonth}`);
-        }
-
         try {
-            // 1. Latest Period calculate karein
-            const maxPeriodNum = Math.max(...periodArray.map(p => parseInt(p.replace('P', ''))));
-            const finalPeriodCode = `P${maxPeriodNum.toString().padStart(3, '0')}`;
+            console.log("📧 [PTD]: Preparing notification for last month...");
 
-            // 2. 🔥 NAYA: Database se saare active users ki email list nikalon
+            // 1. 🔥 SIMPLE LOGIC: Hamesha aaj se pichle mahine ka Period code banao
+            const today = new Date();
+            // getMonth() 0-based hota hai (Sept is 8). 
+            // Agar Sept (8) chal raha hai, toh prevMonthNum = 8, yaani "P008"
+            let prevMonthNum = today.getMonth(); 
+            if (prevMonthNum === 0) prevMonthNum = 12; // Jan mein upload ho toh Dec (12) ka data
+            
+            const finalPeriodCode = `P${prevMonthNum.toString().padStart(3, '0')}`;
+            console.log(`🔍 [PTD]: Generated reporting period: ${finalPeriodCode}`);
+
+            // 2. Database se saare active users ki list
             const [userRows] = await db.query("SELECT email FROM users WHERE is_active = '1'");
             const allUserEmails = userRows.map(u => u.email).filter(Boolean);
 
             if (allUserEmails.length > 0) {
-                console.log(`📧 [PTD]: Sending mail to ${allUserEmails.length} users:`, allUserEmails);
-                
-                // 3. Sabhi users ko mail bhejein (recipientEmails array pass hoga)
+                // 3. Immediate Alert (All Users)
                 await mailService.sendPTDUpdateAlert(allUserEmails, finalPeriodCode);
-                console.log(`✅ [PTD]: Success! Mail sent to all stakeholders for ${finalPeriodCode}`);
+                console.log(`✅ [PTD]: Success! Notification sent for ${finalPeriodCode}`);
 
                 // 4. Reminder entry for 7 days later
+                // Isme bhi ab finalPeriodCode (P008) hi jayega, toh reminder b sahi jayega
                 await db.query(
                     `INSERT INTO pending_ptd_reminders (period_code, scheduled_at, status) 
                     VALUES (?, CURRENT_TIMESTAMP + interval '7 days', 'pending')`, 
                     [finalPeriodCode]
                 );
-            } else {
-                console.log("⚠️ [PTD]: No active users found in database. Mail not sent.");
             }
-
         } catch (mailErr) {
             console.error("❌ [PTD] Mail Error:", mailErr.message);
         }
@@ -205,7 +190,7 @@ exports.uploadPtdData = async (req, res) => {
 
         triggerAutoSync('ptd_uploaded');
 
-        res.status(200).json({ message: "Everything Uploaded and Synced Successfully!" });
+        res.status(200).json({ message: "Data Submitted! Data will be refreshed in 5 minutes." });
     } catch (error) { 
         console.error("PTD ERROR:", error); 
         res.status(500).json({ error: error.message }); 

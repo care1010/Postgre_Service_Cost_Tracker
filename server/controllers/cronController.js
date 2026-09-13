@@ -16,8 +16,9 @@ let projectAuditJob = null;
 let ptdReminderJob = null; // 🔥 Reference for Reminder
 let pendingLoaJob = null;  // 🔥 Reference for Pending Audit
 
+let autoSyncTimeout = null; 
 let isSyncing = false;
-let autoSyncTimeout = null;
+let syncRequestedWhileRunning = false; // 🔥 Naya flag queue handle karne ke liye
 
 // ==========================================
 // 🛡️ PM2 INSTANCE GUARD
@@ -32,43 +33,62 @@ const isPrimaryInstance = () => {
 // ==========================================
 // 📦 DATABASE BACKUP ENGINE (PostgreSQL)
 // ==========================================
-const runDatabaseBackup = () => {
-    console.log("📦 CRON: Starting Monthly Database Backup...");
+const runDatabaseBackup = async () => {
+    console.log("📦 [BACKUP]: Database backup shuru ho raha hai...");
 
-    // 1. Create Backup Directory (OS Independent: Windows/Linux)
-    // Yeh server/controllers folder se 2 level up jayega: 7_Service_Cost_Tracker_Postgres/database/backup
-    const backupDir = path.join(__dirname, '../../database/backup');
-    if (!fs.existsSync(backupDir)) {
-        fs.mkdirSync(backupDir, { recursive: true });
-    }
+    try {
+        // 1. Pehle DB mein status 'running' set karein
+        await db.query("UPDATE cron_config SET last_run_status = 'running' WHERE job_name = 'db_backup'");
 
-    // 2. Format Date: dd-mmm-yyyy (e.g., 01-Aug-2026)
-    const date = new Date();
-    const day = String(date.getDate()).padStart(2, '0');
-    const month = date.toLocaleString('en-US', { month: 'short' });
-    const year = date.getFullYear();
-    const fileName = `Backup_ServiceCost_${day}-${month}-${year}.backup`;
-    const filePath = path.join(backupDir, fileName);
-
-    // 3. Get DB Credentials
-    const host = process.env.DB_HOST || 'localhost';
-    const port = process.env.DB_PORT || 5432;
-    const user = process.env.DB_USER || 'postgres';
-    const password = process.env.DB_PASSWORD || 'postgres';
-    const dbName = process.env.DB_NAME || 'service_cost';
-
-    // 4. Build pg_dump Command
-    // -F c = Custom format (Compressed, best for 1M+ rows)
-    const cmd = `pg_dump -h ${host} -p ${port} -U ${user} -F c -d ${dbName} -f "${filePath}"`;
-
-    // 5. Execute Command (Passing Password securely via Env Variables)
-    exec(cmd, { env: { ...process.env, PGPASSWORD: password } }, (error, stdout, stderr) => {
-        if (error) {
-            console.error(`❌ CRON Backup Failed: ${error.message}`);
-            return;
+        const backupDir = path.join(__dirname, '../../database/backup');
+        if (!fs.existsSync(backupDir)) {
+            fs.mkdirSync(backupDir, { recursive: true });
         }
-        console.log(`✅ CRON Backup Successful! File saved at: ${filePath}`);
-    });
+
+        const date = new Date();
+        const day = String(date.getDate()).padStart(2, '0');
+        const month = date.toLocaleString('en-US', { month: 'short' });
+        const year = date.getFullYear();
+        const fileName = `Backup_ServiceCost_${day}-${month}-${year}.backup`;
+        const filePath = path.join(backupDir, fileName);
+
+        const host = process.env.DB_HOST || 'localhost';
+        const port = process.env.DB_PORT || 5432;
+        const user = process.env.DB_USER || 'postgres';
+        const password = process.env.DB_PASSWORD || 'postgres';
+        const dbName = process.env.DB_NAME || 'service_cost';
+
+        const cmd = `pg_dump -h ${host} -p ${port} -U ${user} -F c -d ${dbName} -f "${filePath}"`;
+
+        // 2. Command execute karein
+        exec(cmd, { env: { ...process.env, PGPASSWORD: password } }, async (error, stdout, stderr) => {
+            if (error) {
+                console.error(`❌ [BACKUP ERROR]:`, error.message);
+                // Database mein error status update karein
+                await db.query(
+                    "UPDATE cron_config SET last_run_status = 'error', last_run_message = ? WHERE job_name = 'db_backup'", 
+                    [error.message.substring(0, 200)]
+                ).catch(console.error);
+                return;
+            }
+
+            console.log(`✅ [BACKUP SUCCESS]: File saved at: ${filePath}`);
+            
+            // 🔥 MAIN FIX: Database mein success status aur time update karein
+            await db.query(`
+                UPDATE cron_config 
+                SET last_run_at = NOW(), 
+                    last_run_status = 'success', 
+                    last_run_message = ?, 
+                    run_count = run_count + 1 
+                WHERE job_name = 'db_backup'
+            `, [`Backup created: ${fileName}`]).catch(console.error);
+        });
+
+    } catch (err) {
+        console.error("❌ [BACKUP CRASH]:", err.message);
+        await db.query("UPDATE cron_config SET last_run_status = 'error' WHERE job_name = 'db_backup'").catch(() => {});
+    }
 };
 
 
@@ -77,27 +97,49 @@ const runDatabaseBackup = () => {
 // ==========================================
 const runSync = async (triggeredBy = 'cron') => {
     if (isSyncing) {
-        console.log(`⏳ Sync already in progress. Skipping trigger from: ${triggeredBy}`);
+        console.log(`⏳ [SYNC]: One Sync task already in progress. Queueing next task for latest data...`);
+        syncRequestedWhileRunning = true;
         return;
     }
 
     isSyncing = true;
-    console.log(`🟢 CRON/TRIGGER: Starting sync (Triggered by: ${triggeredBy})`);
+
+    // Trigger symbols logic
+    const icon = triggeredBy.includes('auto') ? '⚡' : triggeredBy.includes('manual') ? '👤' : '⏰';
+    const source = triggeredBy.replace('auto_trigger_', '').replace('_', ' ').toUpperCase();
+
+    console.log(`\n${icon}  [DATABASE REFRESH]: Shuru ho raha hai... (Source: ${source})`);
 
     try {
-        await db.query("UPDATE cron_config SET last_run_at = NOW(), last_run_status = 'running', last_run_message = 'Sync in progress' WHERE job_name = 'full_sync'");
+        // DB status update (Optional but good for UI)
+        await db.query("UPDATE cron_config SET last_run_at = NOW(), last_run_status = 'running' WHERE job_name = 'full_sync'").catch(() => {});
         
         await dataController.runFullSyncCore();
-
-        await db.query("UPDATE cron_config SET last_run_status = 'success', last_run_message = 'Sync completed successfully', run_count = run_count + 1 WHERE job_name = 'full_sync'");
+        console.log(`✅ [SUCCESS]: Dashboard is refreshed!`);
+        
+        await db.query("UPDATE cron_config SET last_run_status = 'success', last_run_message = 'Sync completed', run_count = run_count + 1 WHERE job_name = 'full_sync'").catch(() => {});
+        console.log("----------------------------------------------");
         console.log('✅ CRON/TRIGGER: Sync completed successfully!');
+        console.log("----------------------------------------------");
     } catch (error) {
-        console.error('❌ CRON/TRIGGER Error:', error.message);
-        await db.query("UPDATE cron_config SET last_run_status = 'error', last_run_message = ? WHERE job_name = 'full_sync'", [error.message.substring(0, 250)]);
+        await db.query("UPDATE cron_config SET last_run_status = 'error', last_run_message = ? WHERE job_name = 'full_sync'", [error.message.substring(0, 200)]).catch(() => {});
+        console.error(`❌ [ERROR]: Refresh failed:`, error.message);
+
     } finally {
         isSyncing = false;
+        
+        // CHECK QUEUE: Agar sync chalne ke dauraan koi naya request aaya tha
+        if (syncRequestedWhileRunning) {
+            console.log(`🔄 [QUEUE]: Got some new data, starting second refresh...`);
+
+            syncRequestedWhileRunning = false;
+            setTimeout(() => runSync('queued_request'), 5000); // 5s delay before next batch
+        }
     }
 };
+
+// Internal calls ke liye aur external exports ke liye dono support:
+exports.runSync = runSync;
 
 
 // 🔥 NAYA: Alerts Runner
@@ -292,7 +334,9 @@ exports.initCron = async () => {
     }
 
     try {
-        console.log("♻️  Initializing Primary Scheduler...");
+        console.log("\n==========================================");
+        console.log("🚀 Financial COST TRACKER: SCHEDULER STARTED");
+        console.log("==========================================");
 
         // 1. Stop all existing to prevent "Zombie" jobs
         if (syncJob) syncJob.stop();
@@ -382,22 +426,33 @@ exports.updateCronConfig = async (req, res) => {
 exports.triggerManualSync = async (req, res) => {
     const { job_name } = req.body;
     try {
-        if (job_name === 'full_sync') runSync('manual_admin');
-        else if (job_name === 'db_backup') runDatabaseBackup();
-        else if (job_name === 'bgdm_alerts') runMonthlyAlerts();
-        else if (job_name === 'monthly_project_audit') runMonthlyProjectAudit();
+        if (job_name === 'full_sync') {
+            runSync('manual_admin'); // Ab ye local function ko call karega, fail nahi hoga
+        } else if (job_name === 'db_backup') {
+            runDatabaseBackup();
+        } else if (job_name === 'bgdm_alerts') {
+            runMonthlyAlerts();
+        } else if (job_name === 'monthly_project_audit') {
+            runMonthlyProjectAudit();
+        }
         
         res.json({ message: `Job [${job_name}] triggered in background.` });
-    } catch (err) { res.status(500).json({ message: "Failed to trigger" }); }
+    } catch (err) { 
+        console.error("Manual Trigger Error:", err.message);
+        res.status(500).json({ message: "Failed to trigger: " + err.message }); 
+    }
 };
+
 
 exports.triggerAutoSync = (source) => {
     if (autoSyncTimeout) clearTimeout(autoSyncTimeout);
-    console.log(`⏳ Auto-Sync queued by [${source}]. Waiting 2 seconds...`);
+    
+    const action = source.replace('_', ' ').toUpperCase();
+    console.log(`\n⚡ [USER ACTION]: ${action} detect hua. Data update karne ke liye 15s wait kar rahe hain...`);
     
     autoSyncTimeout = setTimeout(() => {
-        runSync(`auto_trigger_${source}`);
-    }, 2000); 
+        runSync(`auto_trigger_${source}`); // FIXED
+    }, 15000); 
 };
 
 // EXPORTING BACKUP FUNCTION SO YOU CAN TEST IT IF NEEDED

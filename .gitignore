@@ -45,3 +45,4 @@ ehthumbs.db
 .vscode/
 .idea/
 db.js
+mailService.js
