@@ -4,7 +4,7 @@ const transporter = require("../config/mailer");
 
 const TOOL_NAME = "NI INDIA Financial Cost Tracker";
 
-const TOOL_LINK = "http://10.68.32.163:3000/";
+const TOOL_LINK = "http://10.68.32.105:3001/";
 
 //---- Send Access Request Mailer to Admins (Neha, Mohsin) ----
 const sendAccessRequestMail = async (request) => {
@@ -13,7 +13,7 @@ const sendAccessRequestMail = async (request) => {
 
         from: '"NI INDIA Financial Cost Tracker" <care.ni_india@nokia.com>',
 
-        to: ["neha.sain.ext@nokia.com"],
+        to: ["shraddha.dubey@nokia.com", "neha.sain.ext@nokia.com", "mohsin.1.khan.ext@nokia.com"],
 
         bcc: "care.ni_india@nokia.com",
 
@@ -117,7 +117,7 @@ const sendApprovalMail = async (request) => {
 
         to: request.email,
 
-        cc: ["neha.sain.ext@nokia.com"],
+        cc: ["neha.sain.ext@nokia.com", "shraddha.dubey@nokia.com", "mohsin.1.khan.ext@nokia.com"],
         bcc: "care.ni_india@nokia.com",
 
         subject: `Access Approved - NI INDIA Financial Cost Tracker`,
@@ -196,7 +196,7 @@ const sendDeclineMail = async (request) => {
 
         to: request.email,
 
-        cc: ["neha.sain.ext@nokia.com"],
+        cc: ["neha.sain.ext@nokia.com", "shraddha.dubey@nokia.com", "mohsin.1.khan.ext@nokia.com"],
         bcc: "care.ni_india@nokia.com",
 
         subject: `Access Request Update - NI INDIA Financial Cost Tracker`,
@@ -301,7 +301,7 @@ const sendCustomerUtilizationAlert = async (recipients, customerName, alertsList
     const mailOptions = {
         from: '"NI INDIA Cost Tracker Alert" <care.ni_india@nokia.com>',
         to: recipients,
-        cc: ["neha.sain.ext@nokia.com"],
+        cc: ["neha.sain.ext@nokia.com", "shraddha.dubey@nokia.com", "mohsin.1.khan.ext@nokia.com"],
         bcc: "care.ni_india@nokia.com",
         subject: `⚠️ Action Required: PTD UTIL % || EAC vs ASBL % - ${customerName}`,
         html: `
@@ -361,7 +361,7 @@ const sendPTDUpdateAlert = async (recipientEmails, periodCode) => {
     const mailOptions = {
         from: '"NI INDIA Financial Cost Tracker" <care.ni_india@nokia.com>',
         to: recipientEmails,
-        cc: ["neha.sain.ext@nokia.com"], // As per your latest code
+        cc: ["shraddha.dubey@nokia.com", "neha.sain.ext@nokia.com", "mohsin.1.khan.ext@nokia.com"], // As per your latest code
         bcc: "care.ni_india@nokia.com",
         subject: `NOTIFICATION: Non Committed for ${periodCode} Updated - NI INDIA Financial Cost Tracker`,
         html: `
@@ -392,7 +392,7 @@ const sendPTDReminderAlert = async (recipientEmails, periodCode) => {
         from: '"NI INDIA Financial Cost Tracker" <care.ni_india@nokia.com>',
         // 🔥 TO: Ab ye dynamic filtered list receive karega
         to: recipientEmails, 
-        cc: ["neha.sain.ext@nokia.com"], // Testing ke liye rakha hai
+        cc: ["neha.sain.ext@nokia.com", "shraddha.dubey@nokia.com", "mohsin.1.khan.ext@nokia.com"], // Testing ke liye rakha hai
         bcc: "care.ni_india@nokia.com",
         subject: `⚠️ REMINDER: PTD for ${periodCode} Action Required`,
         html: `
@@ -420,7 +420,7 @@ const sendMonthlyProjectAuditMail = async (adminEmails, excelBuffer, monthName) 
         from: '"NI INDIA Financial Cost Tracker" <care.ni_india@nokia.com>',
         // to: adminEmails, // List of all admins
         // 🔥 TESTING OVERRIDE: Sending only to Neha
-        to: ["neha.sain.ext@nokia.com"], 
+        to: ["shraddha.dubey@nokia.com", "neha.sain.ext@nokia.com", "mohsin.1.khan.ext@nokia.com"], 
         bcc: "care.ni_india@nokia.com",
         subject: `Last Month Added WBS List: New WBS Elements Added - ${monthName}`,
         html: `
@@ -458,7 +458,7 @@ const sendPendingLoaAuditMail = async (adminEmails, excelBuffer, monthYear) => {
     const mailOptions = {
         from: '"Financial Cost Tracker Audit" <care.ni_india@nokia.com>',
         // to: adminEmails, // Array of admins
-        to: "neha.sain.ext@nokia.com", 
+        to: ["shraddha.dubey@nokia.com", "neha.sain.ext@nokia.com", "mohsin.1.khan.ext@nokia.com"],
         cc: ["neha.sain.ext@nokia.com"], // 🔥 Required CC
         bcc: "care.ni_india@nokia.com",
         subject: `⚠️ Action Required: Pending Loa names List with no Non Commited inputs - ${monthYear}`,
