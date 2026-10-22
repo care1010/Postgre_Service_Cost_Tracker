@@ -27,7 +27,8 @@ let syncRequestedWhileRunning = false; // 🔥 Naya flag queue handle karne ke l
 // Only run cron on the first instance to prevent duplicate mails
 // ==========================================
 const isPrimaryInstance = () => {
-    // PM2 sets NODE_APP_INSTANCE. If not using PM2, it will be undefined (return true)
+    // PM2 sets NODE_APP_INSTANCE starting from 0. 
+    // We only want the scheduler to run on the FIRST instance.
     const instance = process.env.NODE_APP_INSTANCE;
     return instance === undefined || instance === '0';
 };
@@ -338,7 +339,7 @@ const runPendingLoaAudit = async () => {
 exports.initCron = async () => {
     // 🛑 STOP: Agar ye primary instance nahi hai, toh scheduler mat chalao
     if (!isPrimaryInstance()) {
-        console.log(`⏭️  Instance ${process.env.NODE_APP_INSTANCE}: Skipping Cron initialization.`);
+        console.log(`⏭️  [INSTANCE ${process.env.NODE_APP_INSTANCE}]: Skipping Cron initialization to prevent duplicate data.`);
         return;
     }
 
@@ -365,7 +366,7 @@ exports.initCron = async () => {
 
             if (conf.job_name === 'full_sync') {
                 syncJob = cron.schedule(conf.cron_expression, () => runSync('scheduled'));
-            } 
+            }
             else if (conf.job_name === 'db_backup') {
                 backupJob = cron.schedule(conf.cron_expression, () => runDatabaseBackup());
             } 

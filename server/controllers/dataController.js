@@ -682,11 +682,20 @@ exports.runFullSyncCore = async () => {
         return;
     }
 
-    isSyncing = true;
-    console.log("🚀 Starting Safe full sync databse...");
-
-    // 🔥 FIX: db.getConnection() use karein kyunki pool private hai
     const connection = await db.getConnection(); 
+    
+    // 🔥 STEP 0: Acquire a GLOBAL DB LOCK (Industry Standard)
+    // ID 999 use kar rahe hain full sync ke liye
+    const [lockRes] = await connection.query("SELECT pg_try_advisory_lock(999) as locked");
+    if (!lockRes[0].locked) {
+        console.log("⚠️  [DATABASE]: Another sync is already running at DB level. Skipping instance trigger.");
+        connection.release();
+        return;
+    }
+
+    isSyncing = true;
+    console.log("🚀 Starting Safe full sync databse");
+
     console.log("🛠️  [STEP 1/3]: Loading new data after cleaning temporary data...");
 
     try {
@@ -695,7 +704,8 @@ exports.runFullSyncCore = async () => {
         await connection.query("SET statement_timeout = '300000'"); 
 
         console.log("Cleaning staging tables for ptd, OC, and master mapping...");
-        await connection.query("TRUNCATE TABLE stg_cj74_agg, stg_cji5_agg, stg_master_mapping");
+        // 1. Clear staging tables
+        await connection.query("TRUNCATE TABLE stg_cj74_agg, stg_cji5_agg, stg_master_mapping RESTART IDENTITY");
 
         // Phase 1: PTD Insert
         await connection.query(`
@@ -832,8 +842,10 @@ exports.runFullSyncCore = async () => {
     } catch (error) {
         console.error("❌ Global Sync Error:", error.message);
     } finally {
+        // 🔥 Release LOCK so next cron can run
+        await connection.query("SELECT pg_advisory_unlock(999)");
         isSyncing = false; 
-        connection.release(); // 🔥 ALWAYS Release back to pool
+        connection.release();
     }
 };
 
